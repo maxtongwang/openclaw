@@ -10,7 +10,29 @@ if (!home) {
 
 const CLAUDE_CREDS = path.join(home, ".claude", ".credentials.json");
 const OPENCLAW_PROFILES = path.join(home, ".openclaw", "auth-profiles.json");
-const AGENT_PROFILES = path.join(home, ".openclaw", "agents", "main", "agent", "auth-profiles.json");
+const AGENT_PROFILES = path.join(
+  home,
+  ".openclaw",
+  "agents",
+  "main",
+  "agent",
+  "auth-profiles.json",
+);
+
+type ProfileStore = {
+  version: number;
+  profiles: Record<string, unknown>;
+  usageStats?: Record<
+    string,
+    {
+      cooldownUntil?: number;
+      disabledUntil?: number;
+      disabledReason?: string;
+      errorCount?: number;
+      failureCounts?: Record<string, number>;
+    }
+  >;
+};
 
 if (!fs.existsSync(CLAUDE_CREDS)) {
   console.error(`Error: Claude Code credentials not found at ${CLAUDE_CREDS}`);
@@ -18,7 +40,9 @@ if (!fs.existsSync(CLAUDE_CREDS)) {
   process.exit(1);
 }
 
-const raw = JSON.parse(fs.readFileSync(CLAUDE_CREDS, "utf8"));
+const raw = JSON.parse(fs.readFileSync(CLAUDE_CREDS, "utf8")) as {
+  claudeAiOauth?: { accessToken?: string; refreshToken?: string; expiresAt?: number };
+};
 const oauth = raw.claudeAiOauth;
 if (!oauth?.accessToken || !oauth?.refreshToken) {
   console.error("Error: Missing accessToken or refreshToken in Claude Code credentials");
@@ -33,19 +57,23 @@ const profile = {
   expires: oauth.expiresAt || 0,
 };
 
-let store: Record<string, unknown>;
-if (fs.existsSync(OPENCLAW_PROFILES)) {
-  store = JSON.parse(fs.readFileSync(OPENCLAW_PROFILES, "utf8"));
-  (store as any).profiles = (store as any).profiles || {};
-  (store as any).profiles["anthropic:default"] = profile;
-
-  // Clear any cooldown for this profile
-  const stats = (store as any).usageStats?.["anthropic:default"];
+function clearCooldown(s: ProfileStore): void {
+  const stats = s.usageStats?.["anthropic:default"];
   if (stats) {
     delete stats.cooldownUntil;
     delete stats.disabledUntil;
+    delete stats.disabledReason;
     stats.errorCount = 0;
+    stats.failureCounts = {};
   }
+}
+
+let store: ProfileStore;
+if (fs.existsSync(OPENCLAW_PROFILES)) {
+  store = JSON.parse(fs.readFileSync(OPENCLAW_PROFILES, "utf8")) as ProfileStore;
+  store.profiles = store.profiles || {};
+  store.profiles["anthropic:default"] = profile;
+  clearCooldown(store);
 } else {
   store = {
     version: 1,
@@ -57,19 +85,10 @@ fs.writeFileSync(OPENCLAW_PROFILES, JSON.stringify(store, null, 2) + "\n");
 
 // Also update the agent-specific store if it exists
 if (fs.existsSync(AGENT_PROFILES)) {
-  const agentStore = JSON.parse(fs.readFileSync(AGENT_PROFILES, "utf8")) as Record<string, unknown>;
-  (agentStore as any).profiles = (agentStore as any).profiles || {};
-  (agentStore as any).profiles["anthropic:default"] = profile;
-
-  // Clear cooldown/disabled state
-  const stats = (agentStore as any).usageStats?.["anthropic:default"];
-  if (stats) {
-    delete stats.cooldownUntil;
-    delete stats.disabledUntil;
-    delete stats.disabledReason;
-    stats.errorCount = 0;
-    stats.failureCounts = {};
-  }
+  const agentStore = JSON.parse(fs.readFileSync(AGENT_PROFILES, "utf8")) as ProfileStore;
+  agentStore.profiles = agentStore.profiles || {};
+  agentStore.profiles["anthropic:default"] = profile;
+  clearCooldown(agentStore);
   fs.writeFileSync(AGENT_PROFILES, JSON.stringify(agentStore, null, 2) + "\n");
   console.log("Updated agent store (agents/main/agent/auth-profiles.json)");
 }
