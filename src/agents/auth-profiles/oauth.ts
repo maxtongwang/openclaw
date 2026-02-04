@@ -8,6 +8,7 @@ import lockfile from "proper-lockfile";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { AuthProfileStore } from "./types.js";
 import { refreshQwenPortalCredentials } from "../../providers/qwen-portal-oauth.js";
+import { refreshAnthropicTokens } from "../anthropic-oauth.js";
 import { refreshChutesTokens } from "../chutes-oauth.js";
 import { AUTH_STORE_LOCK_OPTIONS, log } from "./constants.js";
 import { formatAuthDoctorHint } from "./doctor.js";
@@ -64,25 +65,32 @@ async function refreshOAuthTokenWithLock(params: {
     };
 
     const result =
-      String(cred.provider) === "chutes"
+      String(cred.provider) === "anthropic"
         ? await (async () => {
-            const newCredentials = await refreshChutesTokens({
+            const newCredentials = await refreshAnthropicTokens({
               credential: cred,
             });
             return { apiKey: newCredentials.access, newCredentials };
           })()
-        : String(cred.provider) === "qwen-portal"
+        : String(cred.provider) === "chutes"
           ? await (async () => {
-              const newCredentials = await refreshQwenPortalCredentials(cred);
+              const newCredentials = await refreshChutesTokens({
+                credential: cred,
+              });
               return { apiKey: newCredentials.access, newCredentials };
             })()
-          : await (async () => {
-              const oauthProvider = resolveOAuthProvider(cred.provider);
-              if (!oauthProvider) {
-                return null;
-              }
-              return await getOAuthApiKey(oauthProvider, oauthCreds);
-            })();
+          : String(cred.provider) === "qwen-portal"
+            ? await (async () => {
+                const newCredentials = await refreshQwenPortalCredentials(cred);
+                return { apiKey: newCredentials.access, newCredentials };
+              })()
+            : await (async () => {
+                const oauthProvider = resolveOAuthProvider(cred.provider);
+                if (!oauthProvider) {
+                  return null;
+                }
+                return await getOAuthApiKey(oauthProvider, oauthCreds);
+              })();
     if (!result) {
       return null;
     }
