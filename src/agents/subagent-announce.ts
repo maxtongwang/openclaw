@@ -480,6 +480,12 @@ export async function runSubagentAnnounceFlow(params: {
       outcome = { status: "unknown" };
     }
 
+    // Truncate reply to prevent context overflow when packed into main session
+    const MAX_REPLY_CHARS = 8000;
+    if (reply && reply.length > MAX_REPLY_CHARS) {
+      reply = reply.slice(0, MAX_REPLY_CHARS) + "\n\n[output truncated due to length]";
+    }
+
     // Build stats
     const statsLine = await buildSubagentStatsLine({
       sessionKey: params.childSessionKey,

@@ -123,4 +123,30 @@ describe("subagent announce retry", () => {
 
     expect(didAnnounce).toBe(false);
   });
+
+  it("truncates large subagent reply to prevent context overflow", async () => {
+    // Create a reply that exceeds MAX_REPLY_CHARS (8000)
+    const largeReply = "x".repeat(10000);
+    const { readLatestAssistantReply } = await import("./tools/agent-step.js");
+    vi.mocked(readLatestAssistantReply).mockResolvedValueOnce(largeReply);
+
+    let capturedMessage = "";
+    callGatewayMock.mockImplementation(
+      async (req: { method?: string; params?: { message?: string } }) => {
+        if (req.method === "agent") {
+          capturedMessage = req.params?.message ?? "";
+          return { runId: "run-main", status: "ok" };
+        }
+        return {};
+      },
+    );
+
+    const { runSubagentAnnounceFlow } = await import("./subagent-announce.js");
+    await runSubagentAnnounceFlow(baseParams);
+
+    // The message should contain the truncation marker
+    expect(capturedMessage).toContain("[output truncated due to length]");
+    // The message should be shorter than the original large reply
+    expect(capturedMessage.length).toBeLessThan(largeReply.length);
+  });
 });
