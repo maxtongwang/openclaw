@@ -1,10 +1,31 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { OpenClawConfig } from "../../config/config.js";
-import type { FailoverReason } from "./types.js";
 import { formatSandboxToolPolicyBlockedMessage } from "../sandbox.js";
+import type { FailoverReason } from "./types.js";
 
-export const BILLING_ERROR_USER_MESSAGE =
-  "⚠️ API provider returned a billing error — your API key has run out of credits or has an insufficient balance. Check your provider's billing dashboard and top up or switch to a different API key.";
+export function formatBillingErrorMessage(provider?: string): string {
+  const providerName = provider?.trim();
+  if (providerName) {
+    return `⚠️ ${providerName} returned a billing error — your API key has run out of credits or has an insufficient balance. Check your ${providerName} billing dashboard and top up or switch to a different API key.`;
+  }
+  return "⚠️ API provider returned a billing error — your API key has run out of credits or has an insufficient balance. Check your provider's billing dashboard and top up or switch to a different API key.";
+}
+
+export const BILLING_ERROR_USER_MESSAGE = formatBillingErrorMessage();
+
+const RATE_LIMIT_ERROR_USER_MESSAGE = "⚠️ API rate limit reached. Please try again later.";
+const OVERLOADED_ERROR_USER_MESSAGE =
+  "The AI service is temporarily overloaded. Please try again in a moment.";
+
+function formatRateLimitOrOverloadedErrorCopy(raw: string): string | undefined {
+  if (isRateLimitErrorMessage(raw)) {
+    return RATE_LIMIT_ERROR_USER_MESSAGE;
+  }
+  if (isOverloadedErrorMessage(raw)) {
+    return OVERLOADED_ERROR_USER_MESSAGE;
+  }
+  return undefined;
+}
 
 export function isContextOverflowError(errorMessage?: string): boolean {
   if (!errorMessage) {
@@ -31,7 +52,9 @@ export function isContextOverflowError(errorMessage?: string): boolean {
 
 const CONTEXT_WINDOW_TOO_SMALL_RE = /context window.*(too small|minimum is)/i;
 const CONTEXT_OVERFLOW_HINT_RE =
-  /context.*overflow|context window.*(too (?:large|long)|exceed|over|limit|max(?:imum)?|requested|sent|tokens)|(?:prompt|request|input).*(too (?:large|long)|exceed|over|limit|max(?:imum)?)/i;
+  /context.*overflow|context window.*(too (?:large|long)|exceed|over|limit|max(?:imum)?|requested|sent|tokens)|(?:prompt|request|input)\s+(?:is\s+)?too\s+(?:large|long)/i;
+const RATE_LIMIT_HINT_RE =
+  /rate limit|too many requests|requests per (?:minute|hour|day)|quota|throttl|429\b/i;
 
 export function isLikelyContextOverflowError(errorMessage?: string): boolean {
   if (!errorMessage) {
@@ -42,6 +65,12 @@ export function isLikelyContextOverflowError(errorMessage?: string): boolean {
   }
   if (isContextOverflowError(errorMessage)) {
     return true;
+  }
+  if (RATE_LIMIT_HINT_RE.test(errorMessage)) {
+    return false;
+  }
+  if (isBillingErrorMessage(errorMessage)) {
+    return false;
   }
   return CONTEXT_OVERFLOW_HINT_RE.test(errorMessage);
 }
@@ -68,6 +97,10 @@ const FINAL_TAG_RE = /<\s*\/?\s*final\s*>/gi;
 const ERROR_PREFIX_RE =
   /^(?:error|api\s*error|openai\s*error|anthropic\s*error|gateway\s*error|request failed|failed|exception)[:\s-]+/i;
 const HTTP_STATUS_PREFIX_RE = /^(?:http\s*)?(\d{3})\s+(.+)$/i;
+const HTTP_STATUS_CODE_PREFIX_RE = /^(?:http\s*)?(\d{3})(?:\s+([\s\S]+))?$/i;
+const HTML_ERROR_PREFIX_RE = /^\s*(?:<!doctype\s+html\b|<html\b)/i;
+const CLOUDFLARE_HTML_ERROR_CODES = new Set([521, 522, 523, 524, 525, 526, 530]);
+const TRANSIENT_HTTP_ERROR_CODES = new Set([500, 502, 503, 521, 522, 523, 524, 529]);
 const HTTP_ERROR_HINTS = [
   "error",
   "bad request",
@@ -85,6 +118,50 @@ const HTTP_ERROR_HINTS = [
   "too many requests",
   "permission",
 ];
+
+function extractLeadingHttpStatus(raw: string): { code: number; rest: string } | null {
+  const match = raw.match(HTTP_STATUS_CODE_PREFIX_RE);
+  if (!match) {
+    return null;
+  }
+  const code = Number(match[1]);
+  if (!Number.isFinite(code)) {
+    return null;
+  }
+  return { code, rest: (match[2] ?? "").trim() };
+}
+
+export function isCloudflareOrHtmlErrorPage(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  const status = extractLeadingHttpStatus(trimmed);
+  if (!status || status.code < 500) {
+    return false;
+  }
+
+  if (CLOUDFLARE_HTML_ERROR_CODES.has(status.code)) {
+    return true;
+  }
+
+  return (
+    status.code < 600 && HTML_ERROR_PREFIX_RE.test(status.rest) && /<\/html>/i.test(status.rest)
+  );
+}
+
+export function isTransientHttpError(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return false;
+  }
+  const status = extractLeadingHttpStatus(trimmed);
+  if (!status) {
+    return false;
+  }
+  return TRANSIENT_HTTP_ERROR_CODES.has(status.code);
+}
 
 function stripFinalTagsFromText(text: string): string {
   if (!text) {
@@ -386,7 +463,7 @@ export function formatAssistantErrorText(
   return raw.length > 600 ? `${raw.slice(0, 600)}…` : raw;
 }
 
-export function sanitizeUserFacingText(text: string): string {
+export function sanitizeUserFacingText(text: string, opts?: { errorContext?: boolean }): string {
   if (!text) {
     return text;
   }
