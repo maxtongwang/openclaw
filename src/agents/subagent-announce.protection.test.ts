@@ -59,7 +59,6 @@ vi.mock("./subagent-progress-stream.js", () => ({
 // Import after mocks
 import { loadConfig } from "../config/config.js";
 import { loadSessionStore } from "../config/sessions.js";
-import { callGateway } from "../gateway/call.js";
 import { getSessionContextUsage } from "./context-usage.js";
 
 describe("subagent-announce protection", () => {
