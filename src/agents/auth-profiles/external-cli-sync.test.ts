@@ -86,6 +86,29 @@ describe("syncExternalCliCredentials", () => {
     expect(readClaudeCliCredentialsCached).not.toHaveBeenCalled();
   });
 
+  it("does not overwrite anthropic:default token profile with oauth", () => {
+    readClaudeCliCredentialsCached.mockReturnValue(makeClaudeOAuth(now + 60_000));
+    const store = makeStore({
+      "anthropic:default": {
+        type: "token",
+        provider: "anthropic",
+        token: "sk-ant-oat01-user-token",
+        expires: now + 60_000,
+      },
+    });
+
+    const mutated = syncExternalCliCredentials(store);
+
+    expect(mutated).toBe(false);
+    expect(store.profiles["anthropic:default"]).toEqual({
+      type: "token",
+      provider: "anthropic",
+      token: "sk-ant-oat01-user-token",
+      expires: now + 60_000,
+    });
+    expect(readClaudeCliCredentialsCached).not.toHaveBeenCalled();
+  });
+
   it("refreshes anthropic:default when existing profile is oauth and stale", () => {
     readClaudeCliCredentialsCached.mockReturnValue(makeClaudeOAuth(now + 3_600_000));
     const store = makeStore({
@@ -109,5 +132,30 @@ describe("syncExternalCliCredentials", () => {
       expires: now + 3_600_000,
     });
     expect(readClaudeCliCredentialsCached).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refresh anthropic:default when existing oauth profile is still fresh", () => {
+    readClaudeCliCredentialsCached.mockReturnValue(makeClaudeOAuth(now + 3_600_000));
+    const store = makeStore({
+      "anthropic:default": {
+        type: "oauth",
+        provider: "anthropic",
+        access: "existing-access",
+        refresh: "existing-refresh",
+        expires: now + 60 * 60 * 1000,
+      },
+    });
+
+    const mutated = syncExternalCliCredentials(store);
+
+    expect(mutated).toBe(false);
+    expect(store.profiles["anthropic:default"]).toMatchObject({
+      type: "oauth",
+      provider: "anthropic",
+      access: "existing-access",
+      refresh: "existing-refresh",
+      expires: now + 60 * 60 * 1000,
+    });
+    expect(readClaudeCliCredentialsCached).not.toHaveBeenCalled();
   });
 });
