@@ -36,20 +36,7 @@ function makeClaudeOAuth(expires: number): OAuthCredential {
   };
 }
 
-function makeProviderOAuth(
-  provider: OAuthCredential["provider"],
-  expires: number,
-): OAuthCredential {
-  return {
-    type: "oauth",
-    provider,
-    access: `${provider}-access`,
-    refresh: `${provider}-refresh`,
-    expires,
-  };
-}
-
-describe("syncExternalCliCredentials", () => {
+describe("syncExternalCliCredentials (Anthropic)", () => {
   const now = 1_700_000_000_000;
 
   beforeEach(() => {
@@ -76,75 +63,6 @@ describe("syncExternalCliCredentials", () => {
     expect(mutated).toBe(false);
     expect(store.profiles["anthropic:claude-cli"]).toBeUndefined();
     expect(readClaudeCliCredentialsCached).not.toHaveBeenCalled();
-  });
-
-  it("syncs qwen credentials when qwen profile is missing", () => {
-    readQwenCliCredentialsCached.mockReturnValue(makeProviderOAuth("qwen-portal", now + 60_000));
-    const store = makeStore({});
-
-    const mutated = syncExternalCliCredentials(store);
-
-    expect(mutated).toBe(true);
-    expect(store.profiles["qwen-portal:qwen-cli"]).toMatchObject({
-      type: "oauth",
-      provider: "qwen-portal",
-      access: "qwen-portal-access",
-      refresh: "qwen-portal-refresh",
-      expires: now + 60_000,
-    });
-    expect(readQwenCliCredentialsCached).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not read qwen credentials when qwen profile is already fresh", () => {
-    readQwenCliCredentialsCached.mockReturnValue(makeProviderOAuth("qwen-portal", now + 120_000));
-    const store = makeStore({
-      "qwen-portal:qwen-cli": {
-        type: "oauth",
-        provider: "qwen-portal",
-        access: "existing-access",
-        refresh: "existing-refresh",
-        expires: now + 60 * 60 * 1000,
-      },
-    });
-
-    const mutated = syncExternalCliCredentials(store);
-
-    expect(mutated).toBe(false);
-    expect(store.profiles["qwen-portal:qwen-cli"]).toMatchObject({
-      type: "oauth",
-      provider: "qwen-portal",
-      access: "existing-access",
-      refresh: "existing-refresh",
-      expires: now + 60 * 60 * 1000,
-    });
-    expect(readQwenCliCredentialsCached).not.toHaveBeenCalled();
-  });
-
-  it("refreshes minimax credentials when minimax profile is stale", () => {
-    readMiniMaxCliCredentialsCached.mockReturnValue(
-      makeProviderOAuth("minimax-portal", now + 60_000),
-    );
-    const store = makeStore({
-      "minimax-portal:minimax-cli": {
-        type: "oauth",
-        provider: "minimax-portal",
-        access: "old-access",
-        refresh: "old-refresh",
-        expires: now - 1_000,
-      },
-    });
-
-    const mutated = syncExternalCliCredentials(store);
-
-    expect(mutated).toBe(true);
-    expect(store.profiles["minimax-portal:minimax-cli"]).toMatchObject({
-      type: "oauth",
-      provider: "minimax-portal",
-      access: "minimax-portal-access",
-      refresh: "minimax-portal-refresh",
-      expires: now + 60_000,
-    });
-    expect(readMiniMaxCliCredentialsCached).toHaveBeenCalledTimes(1);
   });
 
   it("does not overwrite anthropic:default api_key profile with oauth", () => {
