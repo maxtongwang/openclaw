@@ -12,6 +12,15 @@ import {
 } from "./constants.js";
 import type { AuthProfileCredential, AuthProfileStore, OAuthCredential } from "./types.js";
 
+type ExternalOAuthProvider = "qwen-portal" | "minimax-portal" | "anthropic";
+
+type ExternalSyncTarget = {
+  profileId: string;
+  provider: ExternalOAuthProvider;
+  readCredentials: () => OAuthCredential | null;
+  logMessage?: string;
+};
+
 function shallowEqualOAuthCredentials(a: OAuthCredential | undefined, b: OAuthCredential): boolean {
   if (!a) {
     return false;
@@ -31,6 +40,10 @@ function shallowEqualOAuthCredentials(a: OAuthCredential | undefined, b: OAuthCr
   );
 }
 
+function isExternalOAuthProvider(provider: string): provider is ExternalOAuthProvider {
+  return provider === "qwen-portal" || provider === "minimax-portal" || provider === "anthropic";
+}
+
 function isExternalProfileFresh(cred: AuthProfileCredential | undefined, now: number): boolean {
   if (!cred) {
     return false;
@@ -38,11 +51,7 @@ function isExternalProfileFresh(cred: AuthProfileCredential | undefined, now: nu
   if (cred.type !== "oauth" && cred.type !== "token") {
     return false;
   }
-  if (
-    cred.provider !== "qwen-portal" &&
-    cred.provider !== "minimax-portal" &&
-    cred.provider !== "anthropic"
-  ) {
+  if (!isExternalOAuthProvider(cred.provider)) {
     return false;
   }
   if (typeof cred.expires !== "number") {
@@ -58,6 +67,7 @@ function syncExternalCliCredentialsForProvider(
   provider: string,
   readCredentials: () => OAuthCredential | null,
   now: number,
+  logMessage?: string,
 ): boolean {
   const existing = store.profiles[profileId];
   const shouldSync =
@@ -76,7 +86,7 @@ function syncExternalCliCredentialsForProvider(
 
   if (shouldUpdate && !shallowEqualOAuthCredentials(existingOAuth, creds)) {
     store.profiles[profileId] = creds;
-    log.info(`synced ${provider} credentials from external cli`, {
+    log.info(logMessage ?? `synced ${provider} credentials from external cli`, {
       profileId,
       expires: new Date(creds.expires).toISOString(),
     });
@@ -95,45 +105,33 @@ export function syncExternalCliCredentials(store: AuthProfileStore): boolean {
   let mutated = false;
   const now = Date.now();
 
-  // Sync from Qwen Code CLI
-  const existingQwen = store.profiles[QWEN_CLI_PROFILE_ID];
-  const shouldSyncQwen =
-    !existingQwen ||
-    existingQwen.provider !== "qwen-portal" ||
-    !isExternalProfileFresh(existingQwen, now);
-  const qwenCreds = shouldSyncQwen
-    ? readQwenCliCredentialsCached({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS })
-    : null;
-  if (qwenCreds) {
-    const existing = store.profiles[QWEN_CLI_PROFILE_ID];
-    const existingOAuth = existing?.type === "oauth" ? existing : undefined;
-    const shouldUpdate =
-      !existingOAuth ||
-      existingOAuth.provider !== "qwen-portal" ||
-      existingOAuth.expires <= now ||
-      qwenCreds.expires > existingOAuth.expires;
+  const syncTargets: ExternalSyncTarget[] = [
+    {
+      profileId: QWEN_CLI_PROFILE_ID,
+      provider: "qwen-portal",
+      readCredentials: () => readQwenCliCredentialsCached({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS }),
+      logMessage: "synced qwen credentials from qwen cli",
+    },
+    {
+      profileId: MINIMAX_CLI_PROFILE_ID,
+      provider: "minimax-portal",
+      readCredentials: () => readMiniMaxCliCredentialsCached({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS }),
+    },
+  ];
 
-    if (shouldUpdate && !shallowEqualOAuthCredentials(existingOAuth, qwenCreds)) {
-      store.profiles[QWEN_CLI_PROFILE_ID] = qwenCreds;
+  for (const target of syncTargets) {
+    if (
+      syncExternalCliCredentialsForProvider(
+        store,
+        target.profileId,
+        target.provider,
+        target.readCredentials,
+        now,
+        target.logMessage,
+      )
+    ) {
       mutated = true;
-      log.info("synced qwen credentials from qwen cli", {
-        profileId: QWEN_CLI_PROFILE_ID,
-        expires: new Date(qwenCreds.expires).toISOString(),
-      });
     }
-  }
-
-  // Sync from MiniMax Portal CLI
-  if (
-    syncExternalCliCredentialsForProvider(
-      store,
-      MINIMAX_CLI_PROFILE_ID,
-      "minimax-portal",
-      () => readMiniMaxCliCredentialsCached({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS }),
-      now,
-    )
-  ) {
-    mutated = true;
   }
 
   // Sync from Claude Code CLI (Keychain on macOS, file fallback)
