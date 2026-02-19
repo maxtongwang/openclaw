@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Gateway: route `/v1/chat/completions` through `dispatchInboundMessage` so slash commands (e.g. `/reset`, `/status`, `/compact`) work from any OpenAI-compatible client including Open WebUI and Cursor; adds client-disconnect abort and proper `finish_reason: "stop"` on streaming responses. (#2) Thanks @maxtongwang.
 - Agents: bump pi-mono packages to 0.52.5. (#9949) Thanks @gumadeiras.
 - Models: default Anthropic model to `anthropic/claude-opus-4-6`. (#9853) Thanks @TinyTb.
 - Models/Onboarding: refresh provider defaults, update OpenAI/OpenAI Codex wizard defaults, and harden model allowlist initialization for first-time configs with matching docs/tests. (#9911) Thanks @gumadeiras.

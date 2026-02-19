@@ -233,7 +233,9 @@ export async function handleOpenAiHttpRequest(
     channel: INTERNAL_MESSAGE_CHANNEL,
   });
 
-  // BodyForAgent carries timestamp + any system prompt from the OpenAI request.
+  // BodyForAgent carries the timestamp-stamped message plus any OpenAI system-role
+  // messages prepended as context. Unlike chat.ts (which has no system-prompt concept),
+  // the OpenAI spec uses system messages to configure behaviour, so we embed them here.
   // Body/CommandBody stay raw so command detection sees the unmodified slash command.
   const bodyForAgent = prompt.extraSystemPrompt
     ? `${prompt.extraSystemPrompt}\n\n${stampedMessage}`
@@ -311,6 +313,7 @@ export async function handleOpenAiHttpRequest(
   // False means a slash command was handled synchronously by the dispatcher.
   let agentRunStarted = false;
   const finalReplyParts: string[] = [];
+  const abortController = new AbortController();
 
   const dispatcher = createReplyDispatcher({
     ...prefixOptions,
@@ -373,6 +376,21 @@ export async function handleOpenAiHttpRequest(
     if (evt.stream === "lifecycle") {
       const phase = evt.data?.phase;
       if (phase === "end" || phase === "error") {
+        // Emit the terminal chunk with finish_reason before [DONE] so strict
+        // OpenAI-compatible clients (e.g. LangChain) can parse the stop reason.
+        writeSse(res, {
+          id: runId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model,
+          choices: [
+            {
+              index: 0,
+              delta: {},
+              finish_reason: phase === "error" ? "stop" : "stop",
+            },
+          ],
+        });
         closed = true;
         unsubscribe();
         writeDone(res);
@@ -384,6 +402,7 @@ export async function handleOpenAiHttpRequest(
   req.on("close", () => {
     closed = true;
     unsubscribe();
+    abortController.abort();
   });
 
   void dispatchInboundMessage({
@@ -392,6 +411,7 @@ export async function handleOpenAiHttpRequest(
     dispatcher,
     replyOptions: {
       runId,
+      abortSignal: abortController.signal,
       // Disable block-level streaming so replies are delivered as complete blocks
       // to the dispatcher; token streaming comes from onAgentEvent above.
       disableBlockStreaming: true,
