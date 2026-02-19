@@ -229,7 +229,10 @@ export function createHooksRequestHandler(
     const expired = !current || nowMs - current.windowStartedAtMs >= HOOK_AUTH_FAILURE_WINDOW_MS;
     const next: HookAuthFailure = expired
       ? { count: 1, windowStartedAtMs: nowMs }
-      : { count: current.count + 1, windowStartedAtMs: current.windowStartedAtMs };
+      : {
+          count: current.count + 1,
+          windowStartedAtMs: current.windowStartedAtMs,
+        };
     // Delete-before-set refreshes Map insertion order so recently-active
     // clients are not evicted before dormant ones during oldest-half eviction.
     if (hookAuthFailures.has(clientKey)) {
@@ -533,11 +536,14 @@ export function createGatewayHttpServer(opts: {
         }
       }
       if (openAiChatCompletionsEnabled) {
+        const openAiAllowedOrigins =
+          configSnapshot.gateway?.http?.endpoints?.chatCompletions?.allowedOrigins;
         if (
           await handleOpenAiHttpRequest(req, res, {
             auth: resolvedAuth,
             trustedProxies,
             rateLimiter,
+            allowedOrigins: openAiAllowedOrigins,
           })
         ) {
           return;

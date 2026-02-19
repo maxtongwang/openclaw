@@ -173,6 +173,14 @@ export type GatewayHttpChatCompletionsConfig = {
    * Default: false when absent.
    */
   enabled?: boolean;
+  /**
+   * CORS origins allowed to access OpenAI-compatible endpoints.
+   * Supports exact origins (e.g. "http://localhost:3000") and wildcards ("*").
+   * When absent, requests without an Origin header are allowed; cross-origin
+   * browser requests must list the origin explicitly.
+   * Example: ["http://localhost:3000", "https://chat.example.com"]
+   */
+  allowedOrigins?: string[];
 };
 
 export type GatewayHttpResponsesConfig = {

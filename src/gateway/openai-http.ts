@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createDefaultDeps } from "../cli/deps.js";
 import { agentCommand } from "../commands/agent.js";
+import { loadConfig } from "../config/config.js";
 import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
 import { logWarn } from "../logger.js";
 import { defaultRuntime } from "../runtime.js";
@@ -21,6 +22,7 @@ type OpenAiHttpOptions = {
   maxBodyBytes?: number;
   trustedProxies?: string[];
   rateLimiter?: AuthRateLimiter;
+  allowedOrigins?: string[];
 };
 
 type OpenAiChatMessage = {
@@ -141,6 +143,87 @@ function coerceRequest(val: unknown): OpenAiChatCompletionRequest {
   return val as OpenAiChatCompletionRequest;
 }
 
+const OPENAI_COMPAT_PATHS = new Set(["/v1/chat/completions", "/v1/models"]);
+
+function resolveAllowedOrigin(
+  requestOrigin: string | undefined,
+  allowedOrigins: string[] | undefined,
+): string | null {
+  if (!requestOrigin) {
+    return null;
+  }
+  if (!allowedOrigins || allowedOrigins.length === 0) {
+    return null;
+  }
+  if (allowedOrigins.includes("*")) {
+    return "*";
+  }
+  return allowedOrigins.includes(requestOrigin) ? requestOrigin : null;
+}
+
+function applyCorsHeaders(
+  res: ServerResponse,
+  requestOrigin: string | undefined,
+  allowedOrigins: string[] | undefined,
+): void {
+  const origin = resolveAllowedOrigin(requestOrigin, allowedOrigins);
+  if (!origin) {
+    return;
+  }
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  res.setHeader("Access-Control-Max-Age", "86400");
+  if (origin !== "*") {
+    res.setHeader("Vary", "Origin");
+  }
+}
+
+function handleOpenAiModelsRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: OpenAiHttpOptions,
+): boolean {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  if (url.pathname !== "/v1/models") {
+    return false;
+  }
+
+  const requestOrigin = req.headers["origin"];
+  applyCorsHeaders(res, requestOrigin, opts.allowedOrigins);
+
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return true;
+  }
+
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET, OPTIONS");
+    sendJson(res, 405, {
+      error: { message: "Method Not Allowed", type: "invalid_request_error" },
+    });
+    return true;
+  }
+
+  const config = loadConfig();
+  const agentList = config.agents?.list ?? [];
+  const created = Math.floor(Date.now() / 1000);
+
+  const models =
+    agentList.length > 0
+      ? agentList.map((a) => ({
+          id: typeof (a as { id?: unknown }).id === "string" ? (a as { id: string }).id : "main",
+          object: "model",
+          created,
+          owned_by: "openclaw",
+        }))
+      : [{ id: "main", object: "model", created, owned_by: "openclaw" }];
+
+  sendJson(res, 200, { object: "list", data: models });
+  return true;
+}
+
 function resolveAgentResponseText(result: unknown): string {
   const payloads = (result as { payloads?: Array<{ text?: string }> } | null)?.payloads;
   if (!Array.isArray(payloads) || payloads.length === 0) {
@@ -158,6 +241,26 @@ export async function handleOpenAiHttpRequest(
   res: ServerResponse,
   opts: OpenAiHttpOptions,
 ): Promise<boolean> {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  if (!OPENAI_COMPAT_PATHS.has(url.pathname)) {
+    return false;
+  }
+
+  const requestOrigin = req.headers["origin"];
+
+  // Handle CORS preflight for all OpenAI-compat paths.
+  if (req.method === "OPTIONS") {
+    applyCorsHeaders(res, requestOrigin, opts.allowedOrigins);
+    res.statusCode = 204;
+    res.end();
+    return true;
+  }
+
+  // GET /v1/models — no auth required, mirrors OpenAI behaviour.
+  if (handleOpenAiModelsRequest(req, res, opts)) {
+    return true;
+  }
+
   const handled = await handleGatewayPostJsonEndpoint(req, res, {
     pathname: "/v1/chat/completions",
     auth: opts.auth,
@@ -171,6 +274,8 @@ export async function handleOpenAiHttpRequest(
   if (!handled) {
     return true;
   }
+
+  applyCorsHeaders(res, requestOrigin, opts.allowedOrigins);
 
   const payload = coerceRequest(handled.body);
   const stream = Boolean(payload.stream);
