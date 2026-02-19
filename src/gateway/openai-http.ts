@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { resolveSessionAgentId } from "../agents/agent-scope.js";
 import { dispatchInboundMessage } from "../auto-reply/dispatch.js";
 import { buildHistoryContextFromEntries, type HistoryEntry } from "../auto-reply/reply/history.js";
 import { createReplyDispatcher } from "../auto-reply/reply/reply-dispatcher.js";
@@ -436,12 +435,15 @@ export async function handleOpenAiHttpRequest(
             ],
           });
         }
+      }
+      // Defensive: if the agent run started but onAgentEvent lifecycle "end" never
+      // fired (e.g. agent runner error that skips the lifecycle emit), close here.
+      if (!closed) {
         closed = true;
         unsubscribe();
         writeDone(res);
         res.end();
       }
-      // agentRunStarted: onAgentEvent lifecycle "end" closes the response.
     })
     .catch((err) => {
       if (closed) {
