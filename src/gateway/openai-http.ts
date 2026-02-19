@@ -1,10 +1,14 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { resolveSessionAgentId } from "../agents/agent-scope.js";
+import { dispatchInboundMessage } from "../auto-reply/dispatch.js";
 import { buildHistoryContextFromEntries, type HistoryEntry } from "../auto-reply/reply/history.js";
-import { createDefaultDeps } from "../cli/deps.js";
-import { agentCommand } from "../commands/agent.js";
-import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
-import { defaultRuntime } from "../runtime.js";
+import { createReplyDispatcher } from "../auto-reply/reply/reply-dispatcher.js";
+import type { MsgContext } from "../auto-reply/templating.js";
+import { createReplyPrefixOptions } from "../channels/reply-prefix.js";
+import { loadConfig } from "../config/config.js";
+import { onAgentEvent } from "../infra/agent-events.js";
+import { INTERNAL_MESSAGE_CHANNEL } from "../utils/message-channel.js";
 import { authorizeGatewayConnect, type ResolvedGatewayAuth } from "./auth.js";
 import {
   readJsonBodyOrError,
@@ -15,6 +19,7 @@ import {
   writeDone,
 } from "./http-common.js";
 import { getBearerToken, resolveAgentIdForRequest, resolveSessionKey } from "./http-utils.js";
+import { injectTimestamp, timestampOptsFromConfig } from "./server-methods/agent-timestamp.js";
 
 type OpenAiHttpOptions = {
   auth: ResolvedGatewayAuth;
@@ -80,8 +85,10 @@ function buildAgentPrompt(messagesUnknown: unknown): {
   const messages = asMessages(messagesUnknown);
 
   const systemParts: string[] = [];
-  const conversationEntries: Array<{ role: "user" | "assistant" | "tool"; entry: HistoryEntry }> =
-    [];
+  const conversationEntries: Array<{
+    role: "user" | "assistant" | "tool";
+    entry: HistoryEntry;
+  }> = [];
 
   for (const msg of messages) {
     if (!msg || typeof msg !== "object") {
@@ -205,6 +212,7 @@ export async function handleOpenAiHttpRequest(
   const model = typeof payload.model === "string" ? payload.model : "openclaw";
   const user = typeof payload.user === "string" ? payload.user : undefined;
 
+  const cfg = loadConfig();
   const agentId = resolveAgentIdForRequest({ req, model });
   const sessionKey = resolveOpenAiSessionKey({ req, agentId, user });
   const prompt = buildAgentPrompt(payload.messages);
@@ -219,33 +227,60 @@ export async function handleOpenAiHttpRequest(
   }
 
   const runId = `chatcmpl_${randomUUID()}`;
-  const deps = createDefaultDeps();
+  const stampedMessage = injectTimestamp(prompt.message, timestampOptsFromConfig(cfg));
+  const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
+    cfg,
+    agentId,
+    channel: INTERNAL_MESSAGE_CHANNEL,
+  });
+
+  // BodyForAgent carries timestamp + any system prompt from the OpenAI request.
+  // Body/CommandBody stay raw so command detection sees the unmodified slash command.
+  const bodyForAgent = prompt.extraSystemPrompt
+    ? `${prompt.extraSystemPrompt}\n\n${stampedMessage}`
+    : stampedMessage;
+
+  const ctx: MsgContext = {
+    Body: prompt.message,
+    BodyForAgent: bodyForAgent,
+    BodyForCommands: prompt.message,
+    RawBody: prompt.message,
+    CommandBody: prompt.message,
+    SessionKey: sessionKey,
+    Provider: INTERNAL_MESSAGE_CHANNEL,
+    Surface: INTERNAL_MESSAGE_CHANNEL,
+    OriginatingChannel: INTERNAL_MESSAGE_CHANNEL,
+    ChatType: "direct",
+    // Allow all slash commands — same as chat.send / webchat
+    CommandAuthorized: true,
+    MessageSid: runId,
+  };
 
   if (!stream) {
     try {
-      const result = await agentCommand(
-        {
-          message: prompt.message,
-          extraSystemPrompt: prompt.extraSystemPrompt,
-          sessionKey,
-          runId,
-          deliver: false,
-          messageChannel: "webchat",
-          bestEffortDeliver: false,
+      const finalReplyParts: string[] = [];
+      const dispatcher = createReplyDispatcher({
+        ...prefixOptions,
+        deliver: async (payload, info) => {
+          if (info.kind !== "final") {
+            return;
+          }
+          const text = payload.text?.trim() ?? "";
+          if (text) {
+            finalReplyParts.push(text);
+          }
         },
-        defaultRuntime,
-        deps,
-      );
+      });
 
-      const payloads = (result as { payloads?: Array<{ text?: string }> } | null)?.payloads;
-      const content =
-        Array.isArray(payloads) && payloads.length > 0
-          ? payloads
-              .map((p) => (typeof p.text === "string" ? p.text : ""))
-              .filter(Boolean)
-              .join("\n\n")
-          : "No response from OpenClaw.";
+      await dispatchInboundMessage({
+        ctx,
+        cfg,
+        dispatcher,
+        replyOptions: { runId, onModelSelected },
+      });
+      await dispatcher.waitForIdle();
 
+      const content = finalReplyParts.join("\n\n") || "No response from OpenClaw.";
       sendJson(res, 200, {
         id: runId,
         object: "chat.completion",
@@ -268,12 +303,31 @@ export async function handleOpenAiHttpRequest(
     return true;
   }
 
+  // --- Streaming path ---
   setSseHeaders(res);
 
   let wroteRole = false;
-  let sawAssistantDelta = false;
   let closed = false;
+  // Set to true by onAgentRunStart when the LLM agent run begins.
+  // False means a slash command was handled synchronously by the dispatcher.
+  let agentRunStarted = false;
+  const finalReplyParts: string[] = [];
 
+  const dispatcher = createReplyDispatcher({
+    ...prefixOptions,
+    deliver: async (payload, info) => {
+      if (info.kind !== "final") {
+        return;
+      }
+      const text = payload.text?.trim() ?? "";
+      if (text) {
+        finalReplyParts.push(text);
+      }
+    },
+  });
+
+  // Listen for incremental token events emitted by the agent run.
+  // Only fires when agentRunStarted is true (i.e. a real LLM run, not a command).
   const unsubscribe = onAgentEvent((evt) => {
     if (evt.runId !== runId) {
       return;
@@ -301,7 +355,6 @@ export async function handleOpenAiHttpRequest(
         });
       }
 
-      sawAssistantDelta = true;
       writeSse(res, {
         id: runId,
         object: "chat.completion.chunk",
@@ -334,63 +387,63 @@ export async function handleOpenAiHttpRequest(
     unsubscribe();
   });
 
-  void (async () => {
-    try {
-      const result = await agentCommand(
-        {
-          message: prompt.message,
-          extraSystemPrompt: prompt.extraSystemPrompt,
-          sessionKey,
-          runId,
-          deliver: false,
-          messageChannel: "webchat",
-          bestEffortDeliver: false,
-        },
-        defaultRuntime,
-        deps,
-      );
-
+  void dispatchInboundMessage({
+    ctx,
+    cfg,
+    dispatcher,
+    replyOptions: {
+      runId,
+      // Disable block-level streaming so replies are delivered as complete blocks
+      // to the dispatcher; token streaming comes from onAgentEvent above.
+      disableBlockStreaming: true,
+      onAgentRunStart: () => {
+        agentRunStarted = true;
+      },
+      onModelSelected,
+    },
+  })
+    .then(async () => {
+      await dispatcher.waitForIdle();
       if (closed) {
         return;
       }
 
-      if (!sawAssistantDelta) {
-        if (!wroteRole) {
-          wroteRole = true;
+      if (!agentRunStarted) {
+        // A slash command was handled — write its reply as a single SSE chunk.
+        const content = finalReplyParts.join("\n\n");
+        if (content) {
+          if (!wroteRole) {
+            wroteRole = true;
+            writeSse(res, {
+              id: runId,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model,
+              choices: [{ index: 0, delta: { role: "assistant" } }],
+            });
+          }
           writeSse(res, {
             id: runId,
             object: "chat.completion.chunk",
             created: Math.floor(Date.now() / 1000),
             model,
-            choices: [{ index: 0, delta: { role: "assistant" } }],
+            choices: [
+              {
+                index: 0,
+                delta: { content },
+                finish_reason: "stop",
+              },
+            ],
           });
         }
-
-        const payloads = (result as { payloads?: Array<{ text?: string }> } | null)?.payloads;
-        const content =
-          Array.isArray(payloads) && payloads.length > 0
-            ? payloads
-                .map((p) => (typeof p.text === "string" ? p.text : ""))
-                .filter(Boolean)
-                .join("\n\n")
-            : "No response from OpenClaw.";
-
-        sawAssistantDelta = true;
-        writeSse(res, {
-          id: runId,
-          object: "chat.completion.chunk",
-          created: Math.floor(Date.now() / 1000),
-          model,
-          choices: [
-            {
-              index: 0,
-              delta: { content },
-              finish_reason: null,
-            },
-          ],
-        });
+        closed = true;
+        unsubscribe();
+        writeDone(res);
+        res.end();
       }
-    } catch (err) {
+      // agentRunStarted: onAgentEvent lifecycle "end" closes the response.
+    })
+    .catch((err) => {
       if (closed) {
         return;
       }
@@ -407,20 +460,11 @@ export async function handleOpenAiHttpRequest(
           },
         ],
       });
-      emitAgentEvent({
-        runId,
-        stream: "lifecycle",
-        data: { phase: "error" },
-      });
-    } finally {
-      if (!closed) {
-        closed = true;
-        unsubscribe();
-        writeDone(res);
-        res.end();
-      }
-    }
-  })();
+      closed = true;
+      unsubscribe();
+      writeDone(res);
+      res.end();
+    });
 
   return true;
 }
