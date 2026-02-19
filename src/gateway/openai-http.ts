@@ -387,7 +387,7 @@ export async function handleOpenAiHttpRequest(
             {
               index: 0,
               delta: {},
-              finish_reason: phase === "error" ? "stop" : "stop",
+              finish_reason: "stop",
             },
           ],
         });
@@ -446,13 +446,14 @@ export async function handleOpenAiHttpRequest(
             object: "chat.completion.chunk",
             created: Math.floor(Date.now() / 1000),
             model,
-            choices: [
-              {
-                index: 0,
-                delta: { content },
-                finish_reason: "stop",
-              },
-            ],
+            choices: [{ index: 0, delta: { content }, finish_reason: null }],
+          });
+          writeSse(res, {
+            id: runId,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model,
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
           });
         }
       }
