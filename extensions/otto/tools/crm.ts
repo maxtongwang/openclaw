@@ -70,6 +70,9 @@ export function buildCrmTools(supabase: SupabaseClient, getWorkspaceId: () => Pr
             .eq("id", entityId)
             .eq("workspace_id", workspaceId)
             .single(),
+          // Note: entity ownership already validated above via .eq("workspace_id", workspaceId).
+          // The RPC is assumed to return only edges/connections reachable from this entity;
+          // add p_workspace_id if the function is updated to accept it.
           supabase.rpc("get_connected_entities", { p_entity_id: entityId }),
           supabase.from("entity_tags").select("tags(name, color)").eq("entity_id", entityId),
         ]);

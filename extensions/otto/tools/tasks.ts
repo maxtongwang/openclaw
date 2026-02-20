@@ -52,6 +52,18 @@ export function buildTaskTools(supabase: SupabaseClient, getWorkspaceId: () => P
       }
 
       try {
+        // If entityId provided, validate it belongs to this workspace
+        if (entityId) {
+          const { data: entity, error: entityErr } = await supabase
+            .from("entities")
+            .select("id")
+            .eq("id", entityId)
+            .eq("workspace_id", workspaceId)
+            .maybeSingle();
+          if (entityErr) return errorResult(entityErr.message);
+          if (!entity) return errorResult("Entity not found in this workspace.");
+        }
+
         const { data, error } = await supabase
           .from("tasks")
           .insert({
