@@ -16,6 +16,7 @@ import { buildComposeTools } from "./tools/compose.js";
 import { buildCrmTools } from "./tools/crm.js";
 import { buildGmailTools } from "./tools/gmail.js";
 import { buildSettingsTools } from "./tools/settings.js";
+import { buildSourceTools } from "./tools/sources.js";
 import { buildTaskTools } from "./tools/tasks.js";
 
 type OttoConfig = {
@@ -66,6 +67,7 @@ export default function register(api: OpenClawPluginApi) {
   const composeTools = buildComposeTools(client);
   const gmailTools = buildGmailTools(client);
   const settingsTools = buildSettingsTools(client);
+  const sourceTools = buildSourceTools(client);
 
   // ── Register all tools ───────────────────────────────────────────────────
   for (const tool of [
@@ -74,14 +76,20 @@ export default function register(api: OpenClawPluginApi) {
     ...composeTools,
     ...gmailTools,
     ...settingsTools,
+    ...sourceTools,
   ]) {
     // oxlint-disable-next-line typescript/no-explicit-any
     api.registerTool(tool as any);
   }
 
-  api.logger.info(
-    `Otto: registered ${crmTools.length + taskTools.length + composeTools.length + gmailTools.length + settingsTools.length} tools`,
-  );
+  const totalTools =
+    crmTools.length +
+    taskTools.length +
+    composeTools.length +
+    gmailTools.length +
+    settingsTools.length +
+    sourceTools.length;
+  api.logger.info(`Otto: registered ${totalTools} tools`);
 
   // ── Register before_agent_start context injection ─────────────────────────
   api.on("before_agent_start", buildContextInjectionHook(client));

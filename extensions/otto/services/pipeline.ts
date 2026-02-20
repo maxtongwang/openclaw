@@ -23,6 +23,7 @@ const OTTO_SCRIPTS_DIR =
   join(process.env.HOME ?? "/tmp", "Documents/GitHub/Otto/scripts/messaging");
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+const CONTACT_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const DIGEST_HOUR_PST = 20; // 8pm PST (note: 9pm local during PDT, Mar–Nov)
 const PST_OFFSET_HOURS = -8;
 
@@ -108,9 +109,11 @@ async function runGmailPoll(
 export function buildPipelineService() {
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let digestTimer: ReturnType<typeof setInterval> | null = null;
+  let contactSyncTimer: ReturnType<typeof setInterval> | null = null;
   let initialDelay: ReturnType<typeof setTimeout> | null = null;
   let lastDigestDate: string | null = null;
   let isPolling = false;
+  let isContactSyncing = false;
   const activeProcs = new Set<ChildProcess>();
 
   return {
@@ -158,8 +161,24 @@ export function buildPipelineService() {
         );
       }, 60_000);
 
+      // Contact sync every 6 hours; skip if already running
+      contactSyncTimer = setInterval(() => {
+        if (isContactSyncing) {
+          ctx.logger.debug("[otto-pipeline] Skipping contact sync — previous run still active");
+          return;
+        }
+        isContactSyncing = true;
+        runScript(ctx, join(OTTO_SCRIPTS_DIR, "contact-sync.js"), "contact-sync", activeProcs)
+          .catch((err: unknown) =>
+            ctx.logger.error(`[otto-pipeline] contact-sync failed to start: ${String(err)}`),
+          )
+          .finally(() => {
+            isContactSyncing = false;
+          });
+      }, CONTACT_SYNC_INTERVAL_MS);
+
       ctx.logger.info(
-        `[otto-pipeline] Scheduled: poll every ${POLL_INTERVAL_MS / 60_000}m, digest at ${DIGEST_HOUR_PST}:00 PST`,
+        `[otto-pipeline] Scheduled: poll every ${POLL_INTERVAL_MS / 60_000}m, contact sync every ${CONTACT_SYNC_INTERVAL_MS / 3_600_000}h, digest at ${DIGEST_HOUR_PST}:00 PST`,
       );
     },
 
@@ -169,6 +188,9 @@ export function buildPipelineService() {
       }
       if (pollTimer) {
         clearInterval(pollTimer);
+      }
+      if (contactSyncTimer) {
+        clearInterval(contactSyncTimer);
       }
       if (digestTimer) {
         clearInterval(digestTimer);
