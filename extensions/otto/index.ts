@@ -11,6 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { OttoExtClient } from "./lib/client.js";
 import { buildSlashCommand } from "./commands/slash.js";
 import { buildContextInjectionHook } from "./hooks/context-injection.js";
+import { buildPipelineService } from "./services/pipeline.js";
 import { buildComposeTools } from "./tools/compose.js";
 import { buildCrmTools } from "./tools/crm.js";
 import { buildGmailTools } from "./tools/gmail.js";
@@ -89,5 +90,6 @@ export default function register(api: OpenClawPluginApi) {
   // oxlint-disable-next-line typescript/no-explicit-any
   api.registerCommand(buildSlashCommand(client) as any);
 
-  // Phase 4: register pipeline service here
+  // ── Register pipeline service (Gmail poller + daily digest) ─────────────
+  api.registerService(buildPipelineService());
 }
