@@ -60,7 +60,14 @@ export async function resolveWorkspaceId(
     return data.workspace_id;
   }
 
-  // Not mapped: cache the fallback so subsequent calls skip the DB round-trip
+  if (error) {
+    // Log DB errors so silent mis-routing is diagnosable in multi-tenant deployments
+    process.stderr.write(
+      `[otto-tenant] DB error resolving ${channel}/${accountId}: ${error.message}\n`,
+    );
+  }
+
+  // Not mapped (or DB error): cache the fallback so subsequent calls skip the DB round-trip
   cache.set(cacheKey, defaultWorkspace);
   return defaultWorkspace;
 }
