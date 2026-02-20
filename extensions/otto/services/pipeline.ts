@@ -16,11 +16,7 @@
 import type { OpenClawPluginServiceContext } from "openclaw/plugin-sdk";
 import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, join } from "node:path";
-
-/** Path to Otto repo scripts directory. Configurable via OTTO_SCRIPTS_DIR env var. */
-const OTTO_SCRIPTS_DIR =
-  process.env.OTTO_SCRIPTS_DIR ??
-  join(process.env.HOME ?? "/tmp", "Documents/GitHub/Otto/scripts/messaging");
+import { OTTO_SCRIPTS_DIR, CONTACT_SYNC_TIMEOUT_MS } from "../lib/paths.js";
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const CONTACT_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -37,22 +33,35 @@ function pstHour(): number {
   return (new Date().getUTCHours() + 24 + PST_OFFSET_HOURS) % 24;
 }
 
-/** Run a script and resolve when it exits. Rejects only on spawn errors. */
+/** Run a script and resolve when it exits. Rejects only on spawn errors.
+ *  @param timeoutMs Optional wall-clock limit; kills the process and rejects if exceeded.
+ */
 function runScript(
   ctx: OpenClawPluginServiceContext,
   scriptPath: string,
   label: string,
   activeProcs: Set<ChildProcess>,
+  timeoutMs?: number,
+  extraEnv?: Record<string, string>,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     ctx.logger.debug(`[otto-pipeline] Starting ${label}`);
     const proc = spawn("node", [scriptPath], {
-      env: { ...process.env },
+      env: { ...process.env, ...extraEnv },
       cwd: dirname(scriptPath),
       stdio: ["ignore", "pipe", "pipe"],
     });
 
     activeProcs.add(proc);
+
+    // Optional timeout: kill and reject if the script runs too long
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    if (timeoutMs !== undefined) {
+      timeoutHandle = setTimeout(() => {
+        proc.kill("SIGTERM");
+        reject(new Error(`${label} timed out after ${timeoutMs / 1000}s`));
+      }, timeoutMs);
+    }
 
     proc.stdout.on("data", (d: Buffer) => {
       for (const line of d.toString().split("\n").filter(Boolean)) {
@@ -66,12 +75,14 @@ function runScript(
     });
 
     proc.on("error", (err) => {
+      clearTimeout(timeoutHandle);
       activeProcs.delete(proc);
       ctx.logger.error(`[otto-pipeline] ${label} failed to start: ${err.message}`);
       reject(err);
     });
 
     proc.on("close", (code, signal) => {
+      clearTimeout(timeoutHandle);
       activeProcs.delete(proc);
       if (code === 0) {
         ctx.logger.debug(`[otto-pipeline] ${label} exited cleanly`);
@@ -106,11 +117,12 @@ async function runGmailPoll(
   }
 }
 
-export function buildPipelineService() {
+export function buildPipelineService(workspaceId: string) {
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let digestTimer: ReturnType<typeof setInterval> | null = null;
   let contactSyncTimer: ReturnType<typeof setInterval> | null = null;
   let initialDelay: ReturnType<typeof setTimeout> | null = null;
+  let initialContactDelay: ReturnType<typeof setTimeout> | null = null;
   let lastDigestDate: string | null = null;
   let isPolling = false;
   let isContactSyncing = false;
@@ -161,6 +173,32 @@ export function buildPipelineService() {
         );
       }, 60_000);
 
+      // Explicit env for contact-sync — workspaceId is not guaranteed to be
+      // in process.env at startup if the pipeline is registered before env is fully set.
+      const contactSyncEnv = { OTTO_WORKSPACE_ID: workspaceId };
+
+      // Initial contact sync 60s after startup (staggered after gmail poll at 30s)
+      initialContactDelay = setTimeout(() => {
+        if (isContactSyncing) {
+          return;
+        }
+        isContactSyncing = true;
+        runScript(
+          ctx,
+          join(OTTO_SCRIPTS_DIR, "contact-sync.js"),
+          "contact-sync",
+          activeProcs,
+          CONTACT_SYNC_TIMEOUT_MS,
+          contactSyncEnv,
+        )
+          .catch((err: unknown) =>
+            ctx.logger.error(`[otto-pipeline] contact-sync failed to start: ${String(err)}`),
+          )
+          .finally(() => {
+            isContactSyncing = false;
+          });
+      }, 60_000);
+
       // Contact sync every 6 hours; skip if already running
       contactSyncTimer = setInterval(() => {
         if (isContactSyncing) {
@@ -168,7 +206,14 @@ export function buildPipelineService() {
           return;
         }
         isContactSyncing = true;
-        runScript(ctx, join(OTTO_SCRIPTS_DIR, "contact-sync.js"), "contact-sync", activeProcs)
+        runScript(
+          ctx,
+          join(OTTO_SCRIPTS_DIR, "contact-sync.js"),
+          "contact-sync",
+          activeProcs,
+          CONTACT_SYNC_TIMEOUT_MS,
+          contactSyncEnv,
+        )
           .catch((err: unknown) =>
             ctx.logger.error(`[otto-pipeline] contact-sync failed to start: ${String(err)}`),
           )
@@ -185,6 +230,9 @@ export function buildPipelineService() {
     async stop(ctx: OpenClawPluginServiceContext) {
       if (initialDelay) {
         clearTimeout(initialDelay);
+      }
+      if (initialContactDelay) {
+        clearTimeout(initialContactDelay);
       }
       if (pollTimer) {
         clearInterval(pollTimer);
