@@ -136,7 +136,8 @@ export function buildTaskTools(client: OttoExtClient) {
         const { error } = await supabase
           .from("tasks")
           .update({ status: "done", completed_at: new Date().toISOString() })
-          .eq("id", taskId);
+          .eq("id", taskId)
+          .eq("workspace_id", workspaceId);
         if (error) {
           return errorResult(error.message);
         }

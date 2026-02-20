@@ -91,7 +91,6 @@ export function buildComposeTools(client: OttoExtClient) {
                 content: `You are a real estate agent's AI assistant drafting email replies.
 
 Contact: ${entityName} (${entityType})
-Contact metadata: ${JSON.stringify(entity.metadata ?? {})}
 Tone: ${tone}
 ${intent ? `Reply intent: ${intent}` : ""}
 

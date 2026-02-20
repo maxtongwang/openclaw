@@ -201,6 +201,9 @@ export function buildGmailTools(client: OttoExtClient) {
     }),
     async execute(_id: string, params: Record<string, unknown>) {
       const date = (params.date as string) ?? new Date().toISOString().split("T")[0];
+      if (isNaN(Date.parse(`${date}T00:00:00Z`))) {
+        return errorResult(`Invalid date: "${date}". Use ISO format YYYY-MM-DD.`);
+      }
       const cutoff = new Date(`${date}T00:00:00Z`).toISOString();
 
       try {

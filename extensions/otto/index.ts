@@ -59,44 +59,27 @@ export default function register(api: OpenClawPluginApi) {
 
   api.logger.info(`Otto extension loaded (workspaceId=${cfg.workspaceId}, url=${cfg.supabaseUrl})`);
 
-  // ── Register CRM tools ───────────────────────────────────────────────────
-  for (const tool of buildCrmTools(client)) {
-    // oxlint-disable-next-line typescript/no-explicit-any
-    api.registerTool(tool as any);
-  }
+  // Build tool arrays once — used for both registration and count
+  const crmTools = buildCrmTools(client);
+  const taskTools = buildTaskTools(client);
+  const composeTools = buildComposeTools(client);
+  const gmailTools = buildGmailTools(client);
+  const settingsTools = buildSettingsTools(client);
 
-  // ── Register task tools ──────────────────────────────────────────────────
-  for (const tool of buildTaskTools(client)) {
-    // oxlint-disable-next-line typescript/no-explicit-any
-    api.registerTool(tool as any);
-  }
-
-  // ── Register compose + document tools ───────────────────────────────────
-  for (const tool of buildComposeTools(client)) {
-    // oxlint-disable-next-line typescript/no-explicit-any
-    api.registerTool(tool as any);
-  }
-
-  // ── Register Gmail + digest tools ────────────────────────────────────────
-  for (const tool of buildGmailTools(client)) {
-    // oxlint-disable-next-line typescript/no-explicit-any
-    api.registerTool(tool as any);
-  }
-
-  // ── Register settings tools ──────────────────────────────────────────────
-  for (const tool of buildSettingsTools(client)) {
+  // ── Register all tools ───────────────────────────────────────────────────
+  for (const tool of [
+    ...crmTools,
+    ...taskTools,
+    ...composeTools,
+    ...gmailTools,
+    ...settingsTools,
+  ]) {
     // oxlint-disable-next-line typescript/no-explicit-any
     api.registerTool(tool as any);
   }
 
   api.logger.info(
-    `Otto: registered ${
-      buildCrmTools(client).length +
-      buildTaskTools(client).length +
-      buildComposeTools(client).length +
-      buildGmailTools(client).length +
-      buildSettingsTools(client).length
-    } tools`,
+    `Otto: registered ${crmTools.length + taskTools.length + composeTools.length + gmailTools.length + settingsTools.length} tools`,
   );
 
   // ── Register before_agent_start context injection ─────────────────────────

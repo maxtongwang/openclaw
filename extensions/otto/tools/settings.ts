@@ -18,9 +18,12 @@ export function buildSettingsTools(client: OttoExtClient) {
     parameters: Type.Object({}),
     async execute(_id: string, _params: Record<string, unknown>) {
       try {
+        // Exclude llm_config to avoid exposing stored API keys to the agent
         const { data, error } = await supabase
           .from("user_config")
-          .select("*")
+          .select(
+            "workspace_id, autonomy_level, contact_rules, notification_preferences, created_at, updated_at",
+          )
           .eq("workspace_id", workspaceId)
           .single();
         if (error) {

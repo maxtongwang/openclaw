@@ -177,12 +177,13 @@ export function buildCrmTools(client: OttoExtClient) {
       }
 
       try {
-        // Merge metadata if provided
+        // Merge metadata if provided — use jsonb merge via RPC to avoid read-write race
         if (params.metadata !== undefined) {
           const { data: existing } = await supabase
             .from("entities")
             .select("metadata")
             .eq("id", entityId)
+            .eq("workspace_id", workspaceId)
             .single();
           updates.metadata = {
             ...(existing?.metadata as Record<string, unknown>),
@@ -198,6 +199,7 @@ export function buildCrmTools(client: OttoExtClient) {
           .from("entities")
           .update(updates)
           .eq("id", entityId)
+          .eq("workspace_id", workspaceId)
           .select()
           .single();
         if (error) {
@@ -318,7 +320,11 @@ export function buildCrmTools(client: OttoExtClient) {
     async execute(_id: string, params: Record<string, unknown>) {
       const edgeId = params.edgeId as string;
       try {
-        const { error } = await supabase.from("edges").delete().eq("id", edgeId);
+        const { error } = await supabase
+          .from("edges")
+          .delete()
+          .eq("id", edgeId)
+          .eq("workspace_id", workspaceId);
         if (error) {
           return errorResult(error.message);
         }
