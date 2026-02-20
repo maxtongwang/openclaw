@@ -47,7 +47,9 @@ jobs:
           git checkout HEAD -- extensions/ 2>/dev/null || true
           git checkout HEAD -- .github/workflows/sync-upstream.yml \
             .github/workflows/claude-review.yml \
-            .github/workflows/labeler.yml 2>/dev/null || true
+            .github/workflows/labeler.yml \
+            .github/workflows/ci.yml \
+            scripts/hooks/ 2>/dev/null || true
           git add -A
           git commit --no-edit -m "chore: sync upstream $DATE" \
             || git commit -m "chore: sync upstream $DATE (no changes)"
@@ -63,7 +65,7 @@ jobs:
           Auto-sync from [openclaw/openclaw](https://github.com/openclaw/openclaw) upstream.
 
           Merge strategy:
-          - \`extensions/\` and custom \`.github/\` workflows: always kept from our fork
+          - \`extensions/\`, \`scripts/hooks/\`, and custom \`.github/\` workflows (including \`ci.yml\`): always kept from our fork
           - \`src/\` changes: upstream wins on non-conflicting additions; \`-X ours\` on conflicts
 
           Review \`src/\` diffs carefully before merging — upstream may have changed files we also patch.
