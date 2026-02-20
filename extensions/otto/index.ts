@@ -128,5 +128,5 @@ export default function register(api: OpenClawPluginApi) {
   api.registerCommand(buildSlashCommand(staticClient) as any);
 
   // ── Register pipeline service (Gmail poller + daily digest) ─────────────
-  api.registerService(buildPipelineService(client.workspaceId));
+  api.registerService(buildPipelineService(cfg.workspaceId));
 }
