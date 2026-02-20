@@ -360,6 +360,17 @@ export function buildCrmTools(client: OttoExtClient) {
       const removeTags = (params.removeTags as string[]) ?? [];
       const results: string[] = [];
       try {
+        // Verify entity belongs to this workspace before mutating tags
+        const { data: entityCheck } = await supabase
+          .from("entities")
+          .select("id")
+          .eq("id", entityId)
+          .eq("workspace_id", workspaceId)
+          .single();
+        if (!entityCheck) {
+          return errorResult(`Entity ${entityId} not found.`);
+        }
+
         for (const tagName of addTags) {
           // Upsert tag
           let { data: tag } = await supabase
