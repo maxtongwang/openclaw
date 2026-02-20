@@ -5,7 +5,6 @@
  * source_status — show last sync timestamp and result from source_configs table
  */
 
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { errorResult, textResult } from "../lib/client.js";
@@ -107,7 +106,6 @@ export function buildSourceTools(
         required: [],
       },
       async execute(_id: string, params: Record<string, unknown>) {
-        const workspaceId = await getWorkspaceId();
         const dryRun = params.dry_run === true;
 
         if (dryRun) {
@@ -172,8 +170,6 @@ export function buildSourceTools(
         required: [],
       },
       async execute(_id: string, params: Record<string, unknown>) {
-        const workspaceId = await getWorkspaceId();
-
         // Validate source filter against allowlist
         const source = params.source as string | undefined;
         if (

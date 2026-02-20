@@ -75,7 +75,7 @@ export default function register(api: OpenClawPluginApi) {
   // and agentAccountId. resolveWorkspaceId looks up tenant_channel_mappings
   // (cached after first DB hit) and falls back to cfg.workspaceId.
   //
-  // Tool count: CRM(10) + Tasks(3) + Compose(4) + Gmail(3) + Settings(3) + Sources(2) = 25
+  // Tool count: CRM(11) + Tasks(3) + Compose(4) + Gmail(3) + Settings(2) + Sources(2) = 25
 
   function registerToolGroup(
     ctx: OpenClawPluginToolContext,

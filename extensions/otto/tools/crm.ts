@@ -515,6 +515,19 @@ export function buildCrmTools(supabase: SupabaseClient, getWorkspaceId: () => Pr
       const primaryId = params.primaryId as string;
       const secondaryId = params.secondaryId as string;
       try {
+        // Validate both entities belong to this workspace before merging
+        const { data: members, error: memberErr } = await supabase
+          .from("entities")
+          .select("id")
+          .in("id", [primaryId, secondaryId])
+          .eq("workspace_id", workspaceId);
+        if (memberErr) {
+          return errorResult(memberErr.message);
+        }
+        if (!members || members.length < 2) {
+          return errorResult("One or both entities not found in this workspace.");
+        }
+
         const { data, error } = await supabase.rpc("merge_entities", {
           p_primary_id: primaryId,
           p_secondary_id: secondaryId,

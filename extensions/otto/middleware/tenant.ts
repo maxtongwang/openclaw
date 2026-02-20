@@ -60,7 +60,8 @@ export async function resolveWorkspaceId(
     return data.workspace_id;
   }
 
-  // Not mapped: fall back to plugin default (single-tenant or unmapped user)
+  // Not mapped: cache the fallback so subsequent calls skip the DB round-trip
+  cache.set(cacheKey, defaultWorkspace);
   return defaultWorkspace;
 }
 
