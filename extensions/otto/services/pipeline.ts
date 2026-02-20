@@ -16,11 +16,7 @@
 import type { OpenClawPluginServiceContext } from "openclaw/plugin-sdk";
 import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, join } from "node:path";
-
-/** Path to Otto repo scripts directory. Configurable via OTTO_SCRIPTS_DIR env var. */
-const OTTO_SCRIPTS_DIR =
-  process.env.OTTO_SCRIPTS_DIR ??
-  join(process.env.HOME ?? "/tmp", "Documents/GitHub/Otto/scripts/messaging");
+import { OTTO_SCRIPTS_DIR } from "../lib/paths.js";
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const CONTACT_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -111,6 +107,7 @@ export function buildPipelineService() {
   let digestTimer: ReturnType<typeof setInterval> | null = null;
   let contactSyncTimer: ReturnType<typeof setInterval> | null = null;
   let initialDelay: ReturnType<typeof setTimeout> | null = null;
+  let initialContactDelay: ReturnType<typeof setTimeout> | null = null;
   let lastDigestDate: string | null = null;
   let isPolling = false;
   let isContactSyncing = false;
@@ -161,6 +158,21 @@ export function buildPipelineService() {
         );
       }, 60_000);
 
+      // Initial contact sync 60s after startup (staggered after gmail poll at 30s)
+      initialContactDelay = setTimeout(() => {
+        if (isContactSyncing) {
+          return;
+        }
+        isContactSyncing = true;
+        runScript(ctx, join(OTTO_SCRIPTS_DIR, "contact-sync.js"), "contact-sync", activeProcs)
+          .catch((err: unknown) =>
+            ctx.logger.error(`[otto-pipeline] contact-sync failed to start: ${String(err)}`),
+          )
+          .finally(() => {
+            isContactSyncing = false;
+          });
+      }, 60_000);
+
       // Contact sync every 6 hours; skip if already running
       contactSyncTimer = setInterval(() => {
         if (isContactSyncing) {
@@ -185,6 +197,9 @@ export function buildPipelineService() {
     async stop(ctx: OpenClawPluginServiceContext) {
       if (initialDelay) {
         clearTimeout(initialDelay);
+      }
+      if (initialContactDelay) {
+        clearTimeout(initialContactDelay);
       }
       if (pollTimer) {
         clearInterval(pollTimer);

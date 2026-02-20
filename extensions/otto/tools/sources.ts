@@ -5,13 +5,14 @@
  * source_status — show last sync timestamp and result from source_configs table
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import type { OttoExtClient } from "../lib/client.js";
+import { OTTO_SCRIPTS_DIR } from "../lib/paths.js";
 
-const OTTO_SCRIPTS_DIR =
-  process.env.OTTO_SCRIPTS_DIR ??
-  join(process.env.HOME ?? "/tmp", "Documents/GitHub/Otto/scripts/messaging");
+const CONTACT_SYNC_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+const VALID_SOURCES = ["contacts", "gmail", "calendar", "imessage"] as const;
 
 function errorResult(msg: string) {
   return {
@@ -26,7 +27,7 @@ function okResult(text: string) {
 
 /**
  * Spawn contact-sync.js and return its JSON result line.
- * Resolves with parsed result or rejects on spawn error.
+ * Rejects on spawn error or if the process does not finish within 5 minutes.
  */
 function runContactSync(workspaceId: string): Promise<{
   imported: number;
@@ -42,20 +43,30 @@ function runContactSync(workspaceId: string): Promise<{
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    // Kill process and reject if it exceeds the timeout
+    const timer = setTimeout(() => {
+      proc.kill("SIGTERM");
+      reject(new Error("contact-sync timed out after 5 minutes"));
+    }, CONTACT_SYNC_TIMEOUT_MS);
+
     const lines: string[] = [];
     proc.stdout.on("data", (d: Buffer) => {
       lines.push(...d.toString().split("\n").filter(Boolean));
     });
     proc.stderr.on("data", (d: Buffer) => {
-      // Log stderr lines as console output (visible in gateway logs)
+      // Forward stderr to gateway logs
       for (const line of d.toString().split("\n").filter(Boolean)) {
         process.stderr.write(`[contact-sync] ${line}\n`);
       }
     });
 
-    proc.on("error", reject);
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
     proc.on("close", (code) => {
-      // Last line of stdout is the JSON summary
+      clearTimeout(timer);
+      // Last JSON-looking line is the result summary
       const last = lines.findLast((l) => l.startsWith("{"));
       if (last) {
         try {
@@ -75,20 +86,15 @@ function runContactSync(workspaceId: string): Promise<{
       if (code !== 0) {
         reject(new Error(`contact-sync exited with code ${code}`));
       } else {
-        resolve({
-          imported: 0,
-          updated: 0,
-          skipped: 0,
-          errors: ["No result output"],
-        });
+        // Script exited 0 but produced no JSON summary — treat as empty run
+        process.stderr.write("[contact-sync] No JSON summary line in output\n");
+        resolve({ imported: 0, updated: 0, skipped: 0, errors: [] });
       }
     });
   });
 }
 
-export function buildSourceTools(client: OttoExtClient) {
-  const { supabase, workspaceId } = client;
-
+export function buildSourceTools(supabase: SupabaseClient, getWorkspaceId: () => Promise<string>) {
   return [
     // ── contact_sync ────────────────────────────────────────────────────────
     {
@@ -103,17 +109,18 @@ export function buildSourceTools(client: OttoExtClient) {
           dry_run: {
             type: "boolean",
             description:
-              "If true, return the count of contacts that would be synced without writing to the database. " +
-              "Defaults to false.",
+              "If true, verify that a Google OAuth token is present and report its account email " +
+              "and expiry without importing any contacts. Defaults to false.",
           },
         },
         required: [],
       },
       async execute(_id: string, params: Record<string, unknown>) {
+        const workspaceId = await getWorkspaceId();
         const dryRun = params.dry_run === true;
 
         if (dryRun) {
-          // For dry_run, just check token availability and report contact count
+          // Verify token presence only — do not fetch or count contacts
           const { data: tokenRow } = await supabase
             .from("user_tokens")
             .select("account_email, expires_at")
@@ -160,19 +167,31 @@ export function buildSourceTools(client: OttoExtClient) {
           source: {
             type: "string",
             description:
-              "Filter to a specific source type (contacts, gmail, calendar, imessage). Omit to show all.",
+              "Filter to a specific source type: contacts, gmail, calendar, or imessage. Omit to show all.",
           },
         },
         required: [],
       },
       async execute(_id: string, params: Record<string, unknown>) {
+        const workspaceId = await getWorkspaceId();
+
+        // Validate source filter against allowlist
+        const source = params.source as string | undefined;
+        if (
+          source !== undefined &&
+          !VALID_SOURCES.includes(source as (typeof VALID_SOURCES)[number])
+        ) {
+          return errorResult(
+            `Unknown source "${source}". Must be one of: ${VALID_SOURCES.join(", ")}.`,
+          );
+        }
+
         let query = supabase
           .from("source_configs")
           .select("source_type, state, updated_at")
           .eq("workspace_id", workspaceId)
           .order("source_type");
 
-        const source = params.source as string | undefined;
         if (source) {
           query = query.eq("source_type", source);
         }
@@ -191,11 +210,11 @@ export function buildSourceTools(client: OttoExtClient) {
         const lines = data.map((row) => {
           const state = row.state as Record<string, unknown> | null;
           const lastSync = state?.lastSyncAt
-            ? new Date(state.lastSyncAt as string).toLocaleString()
+            ? new Date(state.lastSyncAt as string).toISOString()
             : "never";
           const lastResult = state?.lastResult as Record<string, unknown> | null;
           const summary = lastResult
-            ? ` — imported:${lastResult.imported ?? 0} updated:${lastResult.updated ?? 0} errors:${lastResult.errorCount ?? 0}`
+            ? ` — imported:${Number(lastResult.imported ?? 0)} updated:${Number(lastResult.updated ?? 0)} errors:${Number(lastResult.errorCount ?? 0)}`
             : "";
           return `${row.source_type}: last sync ${lastSync}${summary}`;
         });
