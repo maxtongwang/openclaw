@@ -68,6 +68,7 @@ export function buildCrmTools(client: OttoExtClient) {
             .from("entities")
             .select("*, entity_types(name, display_name, icon, color)")
             .eq("id", entityId)
+            .eq("workspace_id", workspaceId)
             .single(),
           supabase.rpc("get_connected_entities", { p_entity_id: entityId }),
           supabase.from("entity_tags").select("tags(name, color)").eq("entity_id", entityId),
@@ -177,7 +178,7 @@ export function buildCrmTools(client: OttoExtClient) {
       }
 
       try {
-        // Merge metadata if provided — use jsonb merge via RPC to avoid read-write race
+        // Merge metadata if provided (note: read-then-write; last writer wins under concurrent edits)
         if (params.metadata !== undefined) {
           const { data: existing } = await supabase
             .from("entities")

@@ -61,9 +61,9 @@ export function buildGmailTools(client: OttoExtClient) {
           return textResult("No emails found matching that query.");
         }
 
-        // Fetch metadata for each message (parallel, up to 10)
+        // Fetch metadata for each message in parallel (capped at maxResults)
         const messages = await Promise.all(
-          listData.messages.slice(0, 10).map(async (m) => {
+          listData.messages.slice(0, maxResults).map(async (m) => {
             const msgRes = await fetch(
               `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject,From,Date`,
               { headers: { Authorization: `Bearer ${token}` } },

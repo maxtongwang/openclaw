@@ -83,11 +83,13 @@ export function buildSettingsTools(client: OttoExtClient) {
           return textResult("No settings to update.");
         }
 
-        // Upsert — create row if it doesn't exist
+        // Upsert — create row if it doesn't exist; exclude llm_config from response
         const { data, error } = await supabase
           .from("user_config")
           .upsert({ workspace_id: workspaceId, ...updates })
-          .select()
+          .select(
+            "workspace_id, autonomy_level, contact_rules, notification_preferences, created_at, updated_at",
+          )
           .single();
         if (error) {
           return errorResult(error.message);
