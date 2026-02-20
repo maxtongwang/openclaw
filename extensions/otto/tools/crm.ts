@@ -232,6 +232,16 @@ export function buildCrmTools(client: OttoExtClient) {
       const title = params.title as string;
       const body = params.body as string | undefined;
       try {
+        // Validate entity belongs to this workspace
+        const { data: entity, error: entityErr } = await supabase
+          .from("entities")
+          .select("id")
+          .eq("id", entityId)
+          .eq("workspace_id", workspaceId)
+          .maybeSingle();
+        if (entityErr) return errorResult(entityErr.message);
+        if (!entity) return errorResult("Entity not found in this workspace.");
+
         const { data, error } = await supabase
           .from("notifications")
           .insert({
@@ -279,6 +289,17 @@ export function buildCrmTools(client: OttoExtClient) {
       const edgeTypeName = params.edgeTypeName as string;
       const metadata = (params.metadata as Record<string, unknown>) ?? {};
       try {
+        // Validate both entities belong to this workspace before creating edge
+        const { data: members, error: memberErr } = await supabase
+          .from("entities")
+          .select("id")
+          .in("id", [fromEntityId, toEntityId])
+          .eq("workspace_id", workspaceId);
+        if (memberErr) return errorResult(memberErr.message);
+        if (!members || members.length < 2) {
+          return errorResult("One or both entities not found in this workspace.");
+        }
+
         const { data: edgeType, error: etErr } = await supabase
           .from("edge_types")
           .select("id")
