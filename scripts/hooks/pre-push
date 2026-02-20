@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Pre-push hook: runs lint locally to catch failures before CI
+# Install: scripts/hooks/install.sh
+
+set -euo pipefail
+
+# Skip if explicitly opted out
+if [ "${SKIP_PRE_PUSH:-}" = "1" ]; then
+  exit 0
+fi
+
+echo "pre-push: running lint…"
+pnpm lint
+echo "pre-push: lint passed"
