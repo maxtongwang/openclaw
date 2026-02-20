@@ -16,11 +16,10 @@
 import type { OpenClawPluginServiceContext } from "openclaw/plugin-sdk";
 import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, join } from "node:path";
-import { OTTO_SCRIPTS_DIR } from "../lib/paths.js";
+import { OTTO_SCRIPTS_DIR, CONTACT_SYNC_TIMEOUT_MS } from "../lib/paths.js";
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const CONTACT_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
-const CONTACT_SYNC_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const DIGEST_HOUR_PST = 20; // 8pm PST (note: 9pm local during PDT, Mar–Nov)
 const PST_OFFSET_HOURS = -8;
 
@@ -43,11 +42,12 @@ function runScript(
   label: string,
   activeProcs: Set<ChildProcess>,
   timeoutMs?: number,
+  extraEnv?: Record<string, string>,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     ctx.logger.debug(`[otto-pipeline] Starting ${label}`);
     const proc = spawn("node", [scriptPath], {
-      env: { ...process.env },
+      env: { ...process.env, ...extraEnv },
       cwd: dirname(scriptPath),
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -117,7 +117,7 @@ async function runGmailPoll(
   }
 }
 
-export function buildPipelineService() {
+export function buildPipelineService(workspaceId: string) {
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let digestTimer: ReturnType<typeof setInterval> | null = null;
   let contactSyncTimer: ReturnType<typeof setInterval> | null = null;
@@ -173,6 +173,10 @@ export function buildPipelineService() {
         );
       }, 60_000);
 
+      // Explicit env for contact-sync — workspaceId is not guaranteed to be
+      // in process.env at startup if the pipeline is registered before env is fully set.
+      const contactSyncEnv = { OTTO_WORKSPACE_ID: workspaceId };
+
       // Initial contact sync 60s after startup (staggered after gmail poll at 30s)
       initialContactDelay = setTimeout(() => {
         if (isContactSyncing) {
@@ -185,6 +189,7 @@ export function buildPipelineService() {
           "contact-sync",
           activeProcs,
           CONTACT_SYNC_TIMEOUT_MS,
+          contactSyncEnv,
         )
           .catch((err: unknown) =>
             ctx.logger.error(`[otto-pipeline] contact-sync failed to start: ${String(err)}`),
@@ -207,6 +212,7 @@ export function buildPipelineService() {
           "contact-sync",
           activeProcs,
           CONTACT_SYNC_TIMEOUT_MS,
+          contactSyncEnv,
         )
           .catch((err: unknown) =>
             ctx.logger.error(`[otto-pipeline] contact-sync failed to start: ${String(err)}`),

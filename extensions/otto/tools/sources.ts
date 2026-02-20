@@ -9,9 +9,7 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import type { OttoExtClient } from "../lib/client.js";
 import { errorResult, textResult } from "../lib/client.js";
-import { OTTO_SCRIPTS_DIR } from "../lib/paths.js";
-
-const CONTACT_SYNC_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+import { OTTO_SCRIPTS_DIR, CONTACT_SYNC_TIMEOUT_MS } from "../lib/paths.js";
 
 const VALID_SOURCES = ["contacts", "gmail", "calendar", "imessage"] as const;
 
@@ -124,8 +122,11 @@ export function buildSourceTools(client: OttoExtClient) {
             return errorResult("No Google OAuth token found. Run Google auth setup first.");
           }
 
+          const expiresAt = String(tokenRow.expires_at);
+          const isExpired = new Date(expiresAt) < new Date();
+          const expirySuffix = isExpired ? " (WARNING: token is expired — re-run Google auth)" : "";
           return textResult(
-            `Dry run: Google account ${String(tokenRow.account_email)} token expires at ${String(tokenRow.expires_at)}. ` +
+            `Dry run: Google account ${String(tokenRow.account_email)} token expires at ${expiresAt}${expirySuffix}. ` +
               "Run contact_sync without dry_run to import contacts.",
           );
         }
@@ -201,7 +202,9 @@ export function buildSourceTools(client: OttoExtClient) {
           const state = row.state as Record<string, unknown> | null;
           const lastSync = state?.lastSyncAt
             ? new Date(state.lastSyncAt as string).toISOString()
-            : "never";
+            : row.updated_at
+              ? new Date(String(row.updated_at)).toISOString()
+              : "never";
           const lastResult = state?.lastResult as Record<string, unknown> | null;
           const summary = lastResult
             ? ` — imported:${Number(lastResult.imported ?? 0)} updated:${Number(lastResult.updated ?? 0)} errors:${Number(lastResult.errorCount ?? 0)}`
