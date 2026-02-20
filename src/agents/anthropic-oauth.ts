@@ -7,6 +7,7 @@ import { coerceExpiresAt } from "./oauth-utils.js";
  */
 
 const ANTHROPIC_TOKEN_ENDPOINT = "https://platform.claude.com/v1/oauth/token";
+// Default OAuth client ID used by the Claude Code CLI (public, not a secret).
 const ANTHROPIC_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
 export type AnthropicStoredOAuth = OAuthCredentials & {
