@@ -41,10 +41,8 @@ jobs:
               - 'apps/macos/**'
               - '.swiftlint.yml'
               - '.swiftformat'
-              - '.github/workflows/ci.yml'
             android:
               - 'apps/android/**'
-              - '.github/workflows/ci.yml'
 
   install-check:
     runs-on: blacksmith-4vcpu-ubuntu-2404
