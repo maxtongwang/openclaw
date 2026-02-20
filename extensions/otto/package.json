@@ -4,6 +4,7 @@
   "description": "Otto CRM domain extension for OpenClaw",
   "type": "module",
   "dependencies": {
+    "@sinclair/typebox": "0.34.48",
     "@supabase/supabase-js": "^2.49.1"
   },
   "devDependencies": {

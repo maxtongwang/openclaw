@@ -6,8 +6,16 @@
  * OpenClaw handles sessions, memory, and channel routing.
  */
 
-import { createClient } from "@supabase/supabase-js";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { createClient } from "@supabase/supabase-js";
+import type { OttoExtClient } from "./lib/client.js";
+import { buildSlashCommand } from "./commands/slash.js";
+import { buildContextInjectionHook } from "./hooks/context-injection.js";
+import { buildComposeTools } from "./tools/compose.js";
+import { buildCrmTools } from "./tools/crm.js";
+import { buildGmailTools } from "./tools/gmail.js";
+import { buildSettingsTools } from "./tools/settings.js";
+import { buildTaskTools } from "./tools/tasks.js";
 
 type OttoConfig = {
   supabaseUrl: string;
@@ -44,13 +52,59 @@ export default function register(api: OpenClawPluginApi) {
     auth: { persistSession: false },
   });
 
+  const client: OttoExtClient = {
+    supabase,
+    workspaceId: cfg.workspaceId,
+  };
+
   api.logger.info(`Otto extension loaded (workspaceId=${cfg.workspaceId}, url=${cfg.supabaseUrl})`);
 
-  // Phase 2: register CRM tools here
-  // Phase 2: register before_agent_start context injection hook here
-  // Phase 3: register /otto slash command here
-  // Phase 4: register pipeline service here
+  // ── Register CRM tools ───────────────────────────────────────────────────
+  for (const tool of buildCrmTools(client)) {
+    // oxlint-disable-next-line typescript/no-explicit-any
+    api.registerTool(tool as any);
+  }
 
-  // Expose supabase client to future tool registrations (captured in closure)
-  void supabase; // referenced by future tool registrations
+  // ── Register task tools ──────────────────────────────────────────────────
+  for (const tool of buildTaskTools(client)) {
+    // oxlint-disable-next-line typescript/no-explicit-any
+    api.registerTool(tool as any);
+  }
+
+  // ── Register compose + document tools ───────────────────────────────────
+  for (const tool of buildComposeTools(client)) {
+    // oxlint-disable-next-line typescript/no-explicit-any
+    api.registerTool(tool as any);
+  }
+
+  // ── Register Gmail + digest tools ────────────────────────────────────────
+  for (const tool of buildGmailTools(client)) {
+    // oxlint-disable-next-line typescript/no-explicit-any
+    api.registerTool(tool as any);
+  }
+
+  // ── Register settings tools ──────────────────────────────────────────────
+  for (const tool of buildSettingsTools(client)) {
+    // oxlint-disable-next-line typescript/no-explicit-any
+    api.registerTool(tool as any);
+  }
+
+  api.logger.info(
+    `Otto: registered ${
+      buildCrmTools(client).length +
+      buildTaskTools(client).length +
+      buildComposeTools(client).length +
+      buildGmailTools(client).length +
+      buildSettingsTools(client).length
+    } tools`,
+  );
+
+  // ── Register before_agent_start context injection ─────────────────────────
+  api.on("before_agent_start", buildContextInjectionHook(client));
+
+  // ── Register /otto slash command ─────────────────────────────────────────
+  // oxlint-disable-next-line typescript/no-explicit-any
+  api.registerCommand(buildSlashCommand(client) as any);
+
+  // Phase 4: register pipeline service here
 }
