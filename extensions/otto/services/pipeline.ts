@@ -134,6 +134,13 @@ export function buildPipelineService(workspaceId: string) {
     async start(ctx: OpenClawPluginServiceContext) {
       ctx.logger.info("[otto-pipeline] Starting — Gmail poller + daily digest");
 
+      // Warn if OTTO_SCRIPTS_DIR is not explicitly set (fallback is developer-local)
+      if (!process.env.OTTO_SCRIPTS_DIR) {
+        ctx.logger.warn(
+          "[otto-pipeline] OTTO_SCRIPTS_DIR is not set — using developer fallback path. Set OTTO_SCRIPTS_DIR in production.",
+        );
+      }
+
       // Initial poll shortly after startup (give gateway 30s to settle)
       initialDelay = setTimeout(() => {
         if (isPolling) {

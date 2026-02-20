@@ -2,13 +2,11 @@
  * Task management tools for Otto extension.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Type } from "@sinclair/typebox";
-import type { OttoExtClient } from "../lib/client.js";
 import { textResult, errorResult, toJson } from "../lib/client.js";
 
-export function buildTaskTools(client: OttoExtClient) {
-  const { supabase, workspaceId } = client;
-
+export function buildTaskTools(supabase: SupabaseClient, getWorkspaceId: () => Promise<string>) {
   // ── crm_create_task ──────────────────────────────────────────────────────
   const crm_create_task = {
     name: "crm_create_task",
@@ -33,6 +31,7 @@ export function buildTaskTools(client: OttoExtClient) {
       ),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const title = params.title as string;
       const description = params.description as string | undefined;
       const dueAt = params.dueAt as string | undefined;
@@ -53,6 +52,18 @@ export function buildTaskTools(client: OttoExtClient) {
       }
 
       try {
+        // If entityId provided, validate it belongs to this workspace
+        if (entityId) {
+          const { data: entity, error: entityErr } = await supabase
+            .from("entities")
+            .select("id")
+            .eq("id", entityId)
+            .eq("workspace_id", workspaceId)
+            .maybeSingle();
+          if (entityErr) return errorResult(entityErr.message);
+          if (!entity) return errorResult("Entity not found in this workspace.");
+        }
+
         const { data, error } = await supabase
           .from("tasks")
           .insert({
@@ -92,6 +103,7 @@ export function buildTaskTools(client: OttoExtClient) {
       limit: Type.Optional(Type.Number({ description: "Max results (default 20)" })),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const entityId = params.entityId as string | undefined;
       const status = (params.status as string) ?? "pending";
       const limit = (params.limit as number) ?? 20;
@@ -131,6 +143,7 @@ export function buildTaskTools(client: OttoExtClient) {
       taskId: Type.String({ description: "Task UUID" }),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const taskId = params.taskId as string;
       try {
         const { error } = await supabase

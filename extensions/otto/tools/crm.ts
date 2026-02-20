@@ -4,13 +4,11 @@
  * All Supabase operations mirror packages/core/src/entities/, edges/, tags/.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Type } from "@sinclair/typebox";
-import type { OttoExtClient } from "../lib/client.js";
 import { textResult, errorResult, toJson } from "../lib/client.js";
 
-export function buildCrmTools(client: OttoExtClient) {
-  const { supabase, workspaceId } = client;
-
+export function buildCrmTools(supabase: SupabaseClient, getWorkspaceId: () => Promise<string>) {
   // ── crm_search_entities ──────────────────────────────────────────────────
   const crm_search_entities = {
     name: "crm_search_entities",
@@ -22,6 +20,7 @@ export function buildCrmTools(client: OttoExtClient) {
       limit: Type.Optional(Type.Number({ description: "Max results (default 10, max 20)" })),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const query = params.query as string;
       const limit = Math.min((params.limit as number | undefined) ?? 10, 20);
       try {
@@ -61,24 +60,28 @@ export function buildCrmTools(client: OttoExtClient) {
       id: Type.String({ description: "Entity UUID" }),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const entityId = params.id as string;
       try {
-        const [entityRes, connectionsRes, tagsRes] = await Promise.all([
-          supabase
-            .from("entities")
-            .select("*, entity_types(name, display_name, icon, color)")
-            .eq("id", entityId)
-            .eq("workspace_id", workspaceId)
-            .single(),
-          supabase.rpc("get_connected_entities", { p_entity_id: entityId }),
-          supabase.from("entity_tags").select("tags(name, color)").eq("entity_id", entityId),
-        ]);
+        // Validate entity ownership first, then fetch connections/tags in parallel
+        const entityRes = await supabase
+          .from("entities")
+          .select("*, entity_types(name, display_name, icon, color)")
+          .eq("id", entityId)
+          .eq("workspace_id", workspaceId)
+          .single();
         if (entityRes.error) {
           if (entityRes.error.code === "PGRST116") {
             return textResult("Entity not found.");
           }
           return errorResult(entityRes.error.message);
         }
+
+        // Ownership confirmed — fetch connections and tags in parallel
+        const [connectionsRes, tagsRes] = await Promise.all([
+          supabase.rpc("get_connected_entities", { p_entity_id: entityId }),
+          supabase.from("entity_tags").select("tags(name, color)").eq("entity_id", entityId),
+        ]);
         const result = {
           ...entityRes.data,
           connections: connectionsRes.data ?? [],
@@ -112,6 +115,7 @@ export function buildCrmTools(client: OttoExtClient) {
       ),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const typeName = params.typeName as string;
       const name = params.name as string;
       const description = params.description as string | undefined;
@@ -168,6 +172,7 @@ export function buildCrmTools(client: OttoExtClient) {
       ),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const entityId = params.id as string;
       const updates: Record<string, unknown> = {};
       if (params.name !== undefined) {
@@ -227,6 +232,7 @@ export function buildCrmTools(client: OttoExtClient) {
       body: Type.Optional(Type.String({ description: "Detailed notes or transcript" })),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const entityId = params.entityId as string;
       const type = params.type as string;
       const title = params.title as string;
@@ -284,6 +290,7 @@ export function buildCrmTools(client: OttoExtClient) {
       ),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const fromEntityId = params.fromEntityId as string;
       const toEntityId = params.toEntityId as string;
       const edgeTypeName = params.edgeTypeName as string;
@@ -340,6 +347,7 @@ export function buildCrmTools(client: OttoExtClient) {
       edgeId: Type.String({ description: "Edge UUID" }),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const edgeId = params.edgeId as string;
       try {
         const { error } = await supabase
@@ -376,6 +384,7 @@ export function buildCrmTools(client: OttoExtClient) {
       ),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const entityId = params.entityId as string;
       const addTags = (params.addTags as string[]) ?? [];
       const removeTags = (params.removeTags as string[]) ?? [];
@@ -471,6 +480,7 @@ export function buildCrmTools(client: OttoExtClient) {
       ),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const limit = (params.limit as number | undefined) ?? 10;
       try {
         const { data, error } = await supabase
@@ -504,9 +514,23 @@ export function buildCrmTools(client: OttoExtClient) {
       }),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const primaryId = params.primaryId as string;
       const secondaryId = params.secondaryId as string;
       try {
+        // Validate both entities belong to this workspace before merging
+        const { data: members, error: memberErr } = await supabase
+          .from("entities")
+          .select("id")
+          .in("id", [primaryId, secondaryId])
+          .eq("workspace_id", workspaceId);
+        if (memberErr) {
+          return errorResult(memberErr.message);
+        }
+        if (!members || members.length < 2) {
+          return errorResult("One or both entities not found in this workspace.");
+        }
+
         const { data, error } = await supabase.rpc("merge_entities", {
           p_primary_id: primaryId,
           p_secondary_id: secondaryId,
@@ -545,6 +569,7 @@ export function buildCrmTools(client: OttoExtClient) {
       limit: Type.Optional(Type.Number({ description: "Max results (default 20)" })),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       try {
         // Resolve property type ID
         const { data: propType } = await supabase
