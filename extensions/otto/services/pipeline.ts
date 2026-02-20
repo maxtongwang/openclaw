@@ -70,10 +70,13 @@ function runScript(
       reject(err);
     });
 
-    proc.on("close", (code) => {
+    proc.on("close", (code, signal) => {
       activeProcs.delete(proc);
       if (code === 0) {
         ctx.logger.debug(`[otto-pipeline] ${label} exited cleanly`);
+      } else if (signal) {
+        // Killed by stop() — expected, not an error
+        ctx.logger.debug(`[otto-pipeline] ${label} killed with ${signal}`);
       } else {
         ctx.logger.warn(`[otto-pipeline] ${label} exited with code ${code}`);
       }
@@ -149,7 +152,10 @@ export function buildPipelineService() {
           return;
         }
         lastDigestDate = today;
-        void runScript(ctx, join(OTTO_SCRIPTS_DIR, "send-digest.js"), "send-digest", activeProcs);
+        runScript(ctx, join(OTTO_SCRIPTS_DIR, "send-digest.js"), "send-digest", activeProcs).catch(
+          (err: unknown) =>
+            ctx.logger.error(`[otto-pipeline] send-digest failed to start: ${String(err)}`),
+        );
       }, 60_000);
 
       ctx.logger.info(
