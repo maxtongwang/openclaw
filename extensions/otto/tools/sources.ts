@@ -5,25 +5,15 @@
  * source_status — show last sync timestamp and result from source_configs table
  */
 
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import type { OttoExtClient } from "../lib/client.js";
+import { errorResult, textResult } from "../lib/client.js";
 import { OTTO_SCRIPTS_DIR } from "../lib/paths.js";
 
 const CONTACT_SYNC_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 const VALID_SOURCES = ["contacts", "gmail", "calendar", "imessage"] as const;
-
-function errorResult(msg: string) {
-  return {
-    content: [{ type: "text" as const, text: `Error: ${msg}` }],
-    isError: true,
-  };
-}
-
-function okResult(text: string) {
-  return { content: [{ type: "text" as const, text }] };
-}
 
 /**
  * Spawn contact-sync.js and return its JSON result line.
@@ -94,7 +84,9 @@ function runContactSync(workspaceId: string): Promise<{
   });
 }
 
-export function buildSourceTools(supabase: SupabaseClient, getWorkspaceId: () => Promise<string>) {
+export function buildSourceTools(client: OttoExtClient) {
+  const { supabase, workspaceId } = client;
+
   return [
     // ── contact_sync ────────────────────────────────────────────────────────
     {
@@ -116,14 +108,14 @@ export function buildSourceTools(supabase: SupabaseClient, getWorkspaceId: () =>
         required: [],
       },
       async execute(_id: string, params: Record<string, unknown>) {
-        const workspaceId = await getWorkspaceId();
         const dryRun = params.dry_run === true;
 
         if (dryRun) {
-          // Verify token presence only — do not fetch or count contacts
+          // Verify token presence only — scoped to workspace to prevent cross-tenant leaks
           const { data: tokenRow } = await supabase
             .from("user_tokens")
             .select("account_email, expires_at")
+            .eq("workspace_id", workspaceId)
             .eq("provider", "google")
             .limit(1)
             .maybeSingle();
@@ -132,8 +124,8 @@ export function buildSourceTools(supabase: SupabaseClient, getWorkspaceId: () =>
             return errorResult("No Google OAuth token found. Run Google auth setup first.");
           }
 
-          return okResult(
-            `Dry run: Google account ${tokenRow.account_email} token expires at ${tokenRow.expires_at}. ` +
+          return textResult(
+            `Dry run: Google account ${String(tokenRow.account_email)} token expires at ${String(tokenRow.expires_at)}. ` +
               "Run contact_sync without dry_run to import contacts.",
           );
         }
@@ -148,7 +140,7 @@ export function buildSourceTools(supabase: SupabaseClient, getWorkspaceId: () =>
             (result.errors.length > 0
               ? `- Errors (${result.errors.length}): ${result.errors.slice(0, 5).join("; ")}${result.errors.length > 5 ? ` (+${result.errors.length - 5} more)` : ""}`
               : "- No errors");
-          return okResult(summary);
+          return textResult(summary);
         } catch (err) {
           return errorResult(`Contact sync failed: ${String(err)}`);
         }
@@ -173,8 +165,6 @@ export function buildSourceTools(supabase: SupabaseClient, getWorkspaceId: () =>
         required: [],
       },
       async execute(_id: string, params: Record<string, unknown>) {
-        const workspaceId = await getWorkspaceId();
-
         // Validate source filter against allowlist
         const source = params.source as string | undefined;
         if (
@@ -202,7 +192,7 @@ export function buildSourceTools(supabase: SupabaseClient, getWorkspaceId: () =>
         }
 
         if (!data || data.length === 0) {
-          return okResult(
+          return textResult(
             "No sync history found. Run contact_sync or start the pipeline service to begin.",
           );
         }
@@ -219,7 +209,7 @@ export function buildSourceTools(supabase: SupabaseClient, getWorkspaceId: () =>
           return `${row.source_type}: last sync ${lastSync}${summary}`;
         });
 
-        return okResult(lines.join("\n"));
+        return textResult(lines.join("\n"));
       },
     },
   ];

@@ -20,6 +20,7 @@ import { OTTO_SCRIPTS_DIR } from "../lib/paths.js";
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const CONTACT_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const CONTACT_SYNC_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const DIGEST_HOUR_PST = 20; // 8pm PST (note: 9pm local during PDT, Mar–Nov)
 const PST_OFFSET_HOURS = -8;
 
@@ -33,12 +34,15 @@ function pstHour(): number {
   return (new Date().getUTCHours() + 24 + PST_OFFSET_HOURS) % 24;
 }
 
-/** Run a script and resolve when it exits. Rejects only on spawn errors. */
+/** Run a script and resolve when it exits. Rejects only on spawn errors.
+ *  @param timeoutMs Optional wall-clock limit; kills the process and rejects if exceeded.
+ */
 function runScript(
   ctx: OpenClawPluginServiceContext,
   scriptPath: string,
   label: string,
   activeProcs: Set<ChildProcess>,
+  timeoutMs?: number,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     ctx.logger.debug(`[otto-pipeline] Starting ${label}`);
@@ -49,6 +53,15 @@ function runScript(
     });
 
     activeProcs.add(proc);
+
+    // Optional timeout: kill and reject if the script runs too long
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    if (timeoutMs !== undefined) {
+      timeoutHandle = setTimeout(() => {
+        proc.kill("SIGTERM");
+        reject(new Error(`${label} timed out after ${timeoutMs / 1000}s`));
+      }, timeoutMs);
+    }
 
     proc.stdout.on("data", (d: Buffer) => {
       for (const line of d.toString().split("\n").filter(Boolean)) {
@@ -62,12 +75,14 @@ function runScript(
     });
 
     proc.on("error", (err) => {
+      clearTimeout(timeoutHandle);
       activeProcs.delete(proc);
       ctx.logger.error(`[otto-pipeline] ${label} failed to start: ${err.message}`);
       reject(err);
     });
 
     proc.on("close", (code, signal) => {
+      clearTimeout(timeoutHandle);
       activeProcs.delete(proc);
       if (code === 0) {
         ctx.logger.debug(`[otto-pipeline] ${label} exited cleanly`);
@@ -164,7 +179,13 @@ export function buildPipelineService() {
           return;
         }
         isContactSyncing = true;
-        runScript(ctx, join(OTTO_SCRIPTS_DIR, "contact-sync.js"), "contact-sync", activeProcs)
+        runScript(
+          ctx,
+          join(OTTO_SCRIPTS_DIR, "contact-sync.js"),
+          "contact-sync",
+          activeProcs,
+          CONTACT_SYNC_TIMEOUT_MS,
+        )
           .catch((err: unknown) =>
             ctx.logger.error(`[otto-pipeline] contact-sync failed to start: ${String(err)}`),
           )
@@ -180,7 +201,13 @@ export function buildPipelineService() {
           return;
         }
         isContactSyncing = true;
-        runScript(ctx, join(OTTO_SCRIPTS_DIR, "contact-sync.js"), "contact-sync", activeProcs)
+        runScript(
+          ctx,
+          join(OTTO_SCRIPTS_DIR, "contact-sync.js"),
+          "contact-sync",
+          activeProcs,
+          CONTACT_SYNC_TIMEOUT_MS,
+        )
           .catch((err: unknown) =>
             ctx.logger.error(`[otto-pipeline] contact-sync failed to start: ${String(err)}`),
           )
