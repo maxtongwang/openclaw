@@ -20,6 +20,7 @@ import { OTTO_SCRIPTS_DIR, CONTACT_SYNC_TIMEOUT_MS } from "../lib/paths.js";
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const CONTACT_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const CONTACT_SYNC_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const DIGEST_HOUR_PST = 20; // 8pm PST (note: 9pm local during PDT, Mar–Nov)
 const PST_OFFSET_HOURS = -8;
 
