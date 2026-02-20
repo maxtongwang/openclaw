@@ -6,7 +6,6 @@ import {
 } from "@mariozechner/pi-ai";
 import lockfile from "proper-lockfile";
 import type { OpenClawConfig } from "../../config/config.js";
-import type { AuthProfileStore } from "./types.js";
 import { refreshQwenPortalCredentials } from "../../providers/qwen-portal-oauth.js";
 import { refreshAnthropicTokens } from "../anthropic-oauth.js";
 import { refreshChutesTokens } from "../chutes-oauth.js";
@@ -16,6 +15,7 @@ import { formatAuthDoctorHint } from "./doctor.js";
 import { ensureAuthStoreFile, resolveAuthStorePath } from "./paths.js";
 import { suggestOAuthProfileIdForLegacyDefault } from "./repair.js";
 import { ensureAuthProfileStore, saveAuthProfileStore } from "./store.js";
+import type { AuthProfileStore } from "./types.js";
 
 const OAUTH_PROVIDER_IDS = new Set<string>(getOAuthProviders().map((provider) => provider.id));
 
@@ -73,7 +73,11 @@ async function refreshOAuthTokenWithLock(params: {
                 credential: cred,
               });
               // Write refreshed tokens back to Claude Code CLI so both stay in sync
-              writeClaudeCliCredentials(newCredentials);
+              if (!writeClaudeCliCredentials(newCredentials)) {
+                log.warn(
+                  "anthropic oauth: failed to write refreshed credentials to Claude Code CLI",
+                );
+              }
               return { apiKey: newCredentials.access, newCredentials };
             } catch (refreshError) {
               // Fallback: try reading fresh credentials from Claude Code's Keychain
@@ -86,7 +90,10 @@ async function refreshOAuthTokenWithLock(params: {
                 log.info("anthropic refresh failed, using fresh credentials from Claude Code CLI", {
                   expires: new Date(freshCreds.expires).toISOString(),
                 });
-                return { apiKey: freshCreds.access, newCredentials: freshCreds };
+                return {
+                  apiKey: freshCreds.access,
+                  newCredentials: freshCreds,
+                };
               }
               throw refreshError;
             }

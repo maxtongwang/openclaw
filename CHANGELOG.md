@@ -6,7 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
-- Auth/Anthropic: preserve user-selected auth mode for `anthropic:default` during external CLI sync by refreshing Claude CLI credentials only when the existing profile is already OAuth, preventing `api_key`/`token` profiles from being auto-converted. Thanks @maxtongwang.
+- Auth/Anthropic: add OAuth token refresh and Claude Code CLI auto-sync; bare code-only paste in the OAuth callback prompt now requires the full redirect URL (including `state`) to prevent CSRF; preserve user-selected auth mode for `anthropic:default` during external CLI sync. Thanks @maxtongwang.
 - Gateway: route `/v1/chat/completions` through `dispatchInboundMessage` so slash commands (e.g. `/reset`, `/status`, `/compact`) work from any OpenAI-compatible client including Open WebUI and Cursor; adds client-disconnect abort and proper `finish_reason: "stop"` on streaming responses. (#2) Thanks @maxtongwang.
 - Agents: bump pi-mono packages to 0.52.5. (#9949) Thanks @gumadeiras.
 - Models: default Anthropic model to `anthropic/claude-opus-4-6`. (#9853) Thanks @TinyTb.
