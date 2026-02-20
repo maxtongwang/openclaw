@@ -66,7 +66,7 @@ async function refreshOAuthTokenWithLock(params: {
     };
 
     const result =
-      String(cred.provider) === "anthropic"
+      cred.provider === "anthropic"
         ? await (async () => {
             try {
               const newCredentials = await refreshAnthropicTokens({
@@ -98,14 +98,14 @@ async function refreshOAuthTokenWithLock(params: {
               throw refreshError;
             }
           })()
-        : String(cred.provider) === "chutes"
+        : cred.provider === "chutes"
           ? await (async () => {
               const newCredentials = await refreshChutesTokens({
                 credential: cred,
               });
               return { apiKey: newCredentials.access, newCredentials };
             })()
-          : String(cred.provider) === "qwen-portal"
+          : cred.provider === "qwen-portal"
             ? await (async () => {
                 const newCredentials = await refreshQwenPortalCredentials(cred);
                 return { apiKey: newCredentials.access, newCredentials };

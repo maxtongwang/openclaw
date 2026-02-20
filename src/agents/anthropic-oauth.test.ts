@@ -175,6 +175,6 @@ describe("refreshAnthropicTokens", () => {
       fetchFn,
     });
 
-    expect((result as Record<string, unknown>).email).toBe("user@test.com");
+    expect(result.email).toBe("user@test.com");
   });
 });
