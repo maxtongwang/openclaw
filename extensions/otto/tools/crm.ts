@@ -63,25 +63,25 @@ export function buildCrmTools(supabase: SupabaseClient, getWorkspaceId: () => Pr
       const workspaceId = await getWorkspaceId();
       const entityId = params.id as string;
       try {
-        const [entityRes, connectionsRes, tagsRes] = await Promise.all([
-          supabase
-            .from("entities")
-            .select("*, entity_types(name, display_name, icon, color)")
-            .eq("id", entityId)
-            .eq("workspace_id", workspaceId)
-            .single(),
-          // Note: entity ownership already validated above via .eq("workspace_id", workspaceId).
-          // The RPC is assumed to return only edges/connections reachable from this entity;
-          // add p_workspace_id if the function is updated to accept it.
-          supabase.rpc("get_connected_entities", { p_entity_id: entityId }),
-          supabase.from("entity_tags").select("tags(name, color)").eq("entity_id", entityId),
-        ]);
+        // Validate entity ownership first, then fetch connections/tags in parallel
+        const entityRes = await supabase
+          .from("entities")
+          .select("*, entity_types(name, display_name, icon, color)")
+          .eq("id", entityId)
+          .eq("workspace_id", workspaceId)
+          .single();
         if (entityRes.error) {
           if (entityRes.error.code === "PGRST116") {
             return textResult("Entity not found.");
           }
           return errorResult(entityRes.error.message);
         }
+
+        // Ownership confirmed — fetch connections and tags in parallel
+        const [connectionsRes, tagsRes] = await Promise.all([
+          supabase.rpc("get_connected_entities", { p_entity_id: entityId }),
+          supabase.from("entity_tags").select("tags(name, color)").eq("entity_id", entityId),
+        ]);
         const result = {
           ...entityRes.data,
           connections: connectionsRes.data ?? [],

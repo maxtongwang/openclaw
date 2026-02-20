@@ -67,7 +67,7 @@ export function buildComposeTools(supabase: SupabaseClient, getWorkspaceId: () =
 
         const llmConfig = (cfg?.llm_config as Record<string, unknown>) ?? {};
         const apiKey = (llmConfig.anthropic_api_key as string) ?? process.env.ANTHROPIC_API_KEY;
-        const model = (llmConfig.draft_model as string | undefined) ?? "claude-haiku-4-5-20251001";
+        const model = (llmConfig.draft_model as string | undefined) ?? "claude-3-5-haiku-20241022";
 
         if (!apiKey) {
           return errorResult(
