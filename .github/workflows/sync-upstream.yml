@@ -41,7 +41,16 @@ jobs:
           DATE=$(date +%Y-%m-%d)
           BRANCH="sync/upstream-$DATE"
           git checkout -b "$BRANCH"
-          git merge upstream/main -X ours --no-edit -m "chore: sync upstream $DATE"
+          # Merge upstream; pause before commit so we can restore our exclusive paths
+          git merge upstream/main --no-commit --no-ff -X ours || true
+          # Always keep our extensions/ tree (upstream has none) and our CI workflows
+          git checkout HEAD -- extensions/ 2>/dev/null || true
+          git checkout HEAD -- .github/workflows/sync-upstream.yml \
+            .github/workflows/claude-review.yml \
+            .github/workflows/labeler.yml 2>/dev/null || true
+          git add -A
+          git commit --no-edit -m "chore: sync upstream $DATE" \
+            || git commit -m "chore: sync upstream $DATE (no changes)"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Open PR
@@ -53,8 +62,11 @@ jobs:
             --body "$(cat <<'EOF'
           Auto-sync from [openclaw/openclaw](https://github.com/openclaw/openclaw) upstream.
 
-          Conflicts (if any) resolved with \`-X ours\` — our patches take priority.
-          Review the diff to confirm no upstream changes break our customizations.
+          Merge strategy:
+          - \`extensions/\` and custom \`.github/\` workflows: always kept from our fork
+          - \`src/\` changes: upstream wins on non-conflicting additions; \`-X ours\` on conflicts
+
+          Review \`src/\` diffs carefully before merging — upstream may have changed files we also patch.
           EOF
           )" \
             --base main \
