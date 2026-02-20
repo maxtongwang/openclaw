@@ -1,0 +1,37 @@
+{
+  "id": "otto",
+  "uiHints": {
+    "supabaseUrl": {
+      "label": "Supabase URL",
+      "placeholder": "https://your-project.supabase.co",
+      "help": "Otto Supabase project URL (or use ${SUPABASE_URL})"
+    },
+    "supabaseServiceKey": {
+      "label": "Supabase Service Key",
+      "sensitive": true,
+      "placeholder": "eyJ...",
+      "help": "Supabase service role key (or use ${SUPABASE_SERVICE_KEY})"
+    },
+    "workspaceId": {
+      "label": "Workspace ID",
+      "placeholder": "default",
+      "help": "Otto workspace identifier (or use ${OTTO_WORKSPACE_ID})"
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "supabaseUrl": {
+        "type": "string"
+      },
+      "supabaseServiceKey": {
+        "type": "string"
+      },
+      "workspaceId": {
+        "type": "string"
+      }
+    },
+    "required": ["supabaseUrl", "supabaseServiceKey", "workspaceId"]
+  }
+}
