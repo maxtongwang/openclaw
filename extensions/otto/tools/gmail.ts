@@ -3,22 +3,25 @@
  * Requires Google OAuth tokens stored in Supabase (source_configs table).
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Type } from "@sinclair/typebox";
-import type { OttoExtClient } from "../lib/client.js";
 import { textResult, errorResult, toJson } from "../lib/client.js";
 
 /** Fetch the stored Google OAuth access token for the workspace. */
-async function getGmailToken(client: OttoExtClient): Promise<string | null> {
-  const { data } = await client.supabase
+async function getGmailToken(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<string | null> {
+  const { data } = await supabase
     .from("source_configs")
     .select("config")
-    .eq("workspace_id", client.workspaceId)
+    .eq("workspace_id", workspaceId)
     .eq("source_type", "gmail")
     .single();
   return (data?.config as Record<string, unknown>)?.access_token as string | null;
 }
 
-export function buildGmailTools(client: OttoExtClient) {
+export function buildGmailTools(supabase: SupabaseClient, getWorkspaceId: () => Promise<string>) {
   // ── gmail_search_emails ───────────────────────────────────────────────────
   const gmail_search_emails = {
     name: "gmail_search_emails",
@@ -32,10 +35,11 @@ export function buildGmailTools(client: OttoExtClient) {
       maxResults: Type.Optional(Type.Number({ description: "Max results (default 10, max 50)" })),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const query = params.query as string;
       const maxResults = Math.min((params.maxResults as number | undefined) ?? 10, 50);
       try {
-        const token = await getGmailToken(client);
+        const token = await getGmailToken(supabase, workspaceId);
         if (!token) {
           return errorResult("Gmail not connected. Configure Google OAuth via source_configs.");
         }
@@ -115,6 +119,7 @@ export function buildGmailTools(client: OttoExtClient) {
       ),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const to = params.to as string[];
       const subject = params.subject as string;
       const body = params.body as string;
@@ -130,7 +135,7 @@ export function buildGmailTools(client: OttoExtClient) {
       }
 
       try {
-        const token = await getGmailToken(client);
+        const token = await getGmailToken(supabase, workspaceId);
         if (!token) {
           return errorResult("Gmail not connected. Configure Google OAuth via source_configs.");
         }
@@ -200,6 +205,7 @@ export function buildGmailTools(client: OttoExtClient) {
       ),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const date = (params.date as string) ?? new Date().toISOString().split("T")[0];
       if (isNaN(Date.parse(`${date}T00:00:00Z`))) {
         return errorResult(`Invalid date: "${date}". Use ISO format YYYY-MM-DD.`);
@@ -208,17 +214,17 @@ export function buildGmailTools(client: OttoExtClient) {
 
       try {
         const [tasksRes, notifRes] = await Promise.all([
-          client.supabase
+          supabase
             .from("tasks")
             .select("title, due_at, priority, status")
-            .eq("workspace_id", client.workspaceId)
+            .eq("workspace_id", workspaceId)
             .eq("status", "pending")
             .order("due_at", { ascending: true })
             .limit(10),
-          client.supabase
+          supabase
             .from("notifications")
             .select("source, title, body, created_at")
-            .eq("workspace_id", client.workspaceId)
+            .eq("workspace_id", workspaceId)
             .gte("created_at", cutoff)
             .order("created_at", { ascending: false })
             .limit(20),

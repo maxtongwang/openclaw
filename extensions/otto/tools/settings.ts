@@ -2,13 +2,14 @@
  * Settings tools — read/write workspace configuration stored in Supabase.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Type } from "@sinclair/typebox";
-import type { OttoExtClient } from "../lib/client.js";
 import { textResult, errorResult, toJson } from "../lib/client.js";
 
-export function buildSettingsTools(client: OttoExtClient) {
-  const { supabase, workspaceId } = client;
-
+export function buildSettingsTools(
+  supabase: SupabaseClient,
+  getWorkspaceId: () => Promise<string>,
+) {
   // ── settings_get ─────────────────────────────────────────────────────────
   const settings_get = {
     name: "settings_get",
@@ -17,6 +18,7 @@ export function buildSettingsTools(client: OttoExtClient) {
       "Get workspace settings including autonomy level, contact rules, and notification preferences.",
     parameters: Type.Object({}),
     async execute(_id: string, _params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       try {
         // Exclude llm_config to avoid exposing stored API keys to the agent
         const { data, error } = await supabase
@@ -63,6 +65,7 @@ export function buildSettingsTools(client: OttoExtClient) {
       ),
     }),
     async execute(_id: string, params: Record<string, unknown>) {
+      const workspaceId = await getWorkspaceId();
       const autonomyLevel = params.autonomyLevel as string | undefined;
       if (autonomyLevel !== undefined && !["propose", "auto", "silent"].includes(autonomyLevel)) {
         return errorResult('autonomyLevel must be "propose", "auto", or "silent"');

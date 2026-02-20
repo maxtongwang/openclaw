@@ -5,9 +5,9 @@
  * source_status — show last sync timestamp and result from source_configs table
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import type { OttoExtClient } from "../lib/client.js";
 import { errorResult, textResult } from "../lib/client.js";
 import { OTTO_SCRIPTS_DIR, CONTACT_SYNC_TIMEOUT_MS } from "../lib/paths.js";
 
@@ -82,9 +82,10 @@ function runContactSync(workspaceId: string): Promise<{
   });
 }
 
-export function buildSourceTools(client: OttoExtClient) {
-  const { supabase, workspaceId } = client;
-
+export function buildSourceTools(
+  supabase: SupabaseClient,
+  getWorkspaceId: () => Promise<string>,
+) {
   return [
     // ── contact_sync ────────────────────────────────────────────────────────
     {
@@ -106,6 +107,7 @@ export function buildSourceTools(client: OttoExtClient) {
         required: [],
       },
       async execute(_id: string, params: Record<string, unknown>) {
+        const workspaceId = await getWorkspaceId();
         const dryRun = params.dry_run === true;
 
         if (dryRun) {
@@ -119,12 +121,16 @@ export function buildSourceTools(client: OttoExtClient) {
             .maybeSingle();
 
           if (!tokenRow) {
-            return errorResult("No Google OAuth token found. Run Google auth setup first.");
+            return errorResult(
+              "No Google OAuth token found. Run Google auth setup first.",
+            );
           }
 
           const expiresAt = String(tokenRow.expires_at);
           const isExpired = new Date(expiresAt) < new Date();
-          const expirySuffix = isExpired ? " (WARNING: token is expired — re-run Google auth)" : "";
+          const expirySuffix = isExpired
+            ? " (WARNING: token is expired — re-run Google auth)"
+            : "";
           return textResult(
             `Dry run: Google account ${String(tokenRow.account_email)} token expires at ${expiresAt}${expirySuffix}. ` +
               "Run contact_sync without dry_run to import contacts.",
@@ -166,6 +172,8 @@ export function buildSourceTools(client: OttoExtClient) {
         required: [],
       },
       async execute(_id: string, params: Record<string, unknown>) {
+        const workspaceId = await getWorkspaceId();
+
         // Validate source filter against allowlist
         const source = params.source as string | undefined;
         if (
@@ -205,7 +213,10 @@ export function buildSourceTools(client: OttoExtClient) {
             : row.updated_at
               ? new Date(String(row.updated_at)).toISOString()
               : "never";
-          const lastResult = state?.lastResult as Record<string, unknown> | null;
+          const lastResult = state?.lastResult as Record<
+            string,
+            unknown
+          > | null;
           const summary = lastResult
             ? ` — imported:${Number(lastResult.imported ?? 0)} updated:${Number(lastResult.updated ?? 0)} errors:${Number(lastResult.errorCount ?? 0)}`
             : "";

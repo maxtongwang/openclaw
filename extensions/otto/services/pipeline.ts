@@ -25,7 +25,9 @@ const PST_OFFSET_HOURS = -8;
 
 /** Return the current date string in PST (YYYY-MM-DD). */
 function pstDateString(): string {
-  return new Date(Date.now() + PST_OFFSET_HOURS * 3600 * 1000).toISOString().split("T")[0];
+  return new Date(Date.now() + PST_OFFSET_HOURS * 3600 * 1000)
+    .toISOString()
+    .split("T")[0];
 }
 
 /** Return the current hour in PST (0–23). */
@@ -77,7 +79,9 @@ function runScript(
     proc.on("error", (err) => {
       clearTimeout(timeoutHandle);
       activeProcs.delete(proc);
-      ctx.logger.error(`[otto-pipeline] ${label} failed to start: ${err.message}`);
+      ctx.logger.error(
+        `[otto-pipeline] ${label} failed to start: ${err.message}`,
+      );
       reject(err);
     });
 
@@ -105,7 +109,12 @@ async function runGmailPoll(
   activeProcs: Set<ChildProcess>,
 ): Promise<void> {
   try {
-    await runScript(ctx, join(OTTO_SCRIPTS_DIR, "gmail-watcher.js"), "gmail-watcher", activeProcs);
+    await runScript(
+      ctx,
+      join(OTTO_SCRIPTS_DIR, "gmail-watcher.js"),
+      "gmail-watcher",
+      activeProcs,
+    );
     await runScript(
       ctx,
       join(OTTO_SCRIPTS_DIR, "process-notify-queue.js"),
@@ -148,7 +157,9 @@ export function buildPipelineService(workspaceId: string) {
       // Recurring poll every 15 minutes; skip if previous poll is still running
       pollTimer = setInterval(() => {
         if (isPolling) {
-          ctx.logger.debug("[otto-pipeline] Skipping poll — previous run still active");
+          ctx.logger.debug(
+            "[otto-pipeline] Skipping poll — previous run still active",
+          );
           return;
         }
         isPolling = true;
@@ -167,9 +178,15 @@ export function buildPipelineService(workspaceId: string) {
           return;
         }
         lastDigestDate = today;
-        runScript(ctx, join(OTTO_SCRIPTS_DIR, "send-digest.js"), "send-digest", activeProcs).catch(
-          (err: unknown) =>
-            ctx.logger.error(`[otto-pipeline] send-digest failed to start: ${String(err)}`),
+        runScript(
+          ctx,
+          join(OTTO_SCRIPTS_DIR, "send-digest.js"),
+          "send-digest",
+          activeProcs,
+        ).catch((err: unknown) =>
+          ctx.logger.error(
+            `[otto-pipeline] send-digest failed to start: ${String(err)}`,
+          ),
         );
       }, 60_000);
 
@@ -192,7 +209,9 @@ export function buildPipelineService(workspaceId: string) {
           contactSyncEnv,
         )
           .catch((err: unknown) =>
-            ctx.logger.error(`[otto-pipeline] contact-sync failed to start: ${String(err)}`),
+            ctx.logger.error(
+              `[otto-pipeline] contact-sync failed to start: ${String(err)}`,
+            ),
           )
           .finally(() => {
             isContactSyncing = false;
@@ -202,7 +221,9 @@ export function buildPipelineService(workspaceId: string) {
       // Contact sync every 6 hours; skip if already running
       contactSyncTimer = setInterval(() => {
         if (isContactSyncing) {
-          ctx.logger.debug("[otto-pipeline] Skipping contact sync — previous run still active");
+          ctx.logger.debug(
+            "[otto-pipeline] Skipping contact sync — previous run still active",
+          );
           return;
         }
         isContactSyncing = true;
@@ -215,7 +236,9 @@ export function buildPipelineService(workspaceId: string) {
           contactSyncEnv,
         )
           .catch((err: unknown) =>
-            ctx.logger.error(`[otto-pipeline] contact-sync failed to start: ${String(err)}`),
+            ctx.logger.error(
+              `[otto-pipeline] contact-sync failed to start: ${String(err)}`,
+            ),
           )
           .finally(() => {
             isContactSyncing = false;
