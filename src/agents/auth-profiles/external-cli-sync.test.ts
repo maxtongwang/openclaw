@@ -1,23 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AuthProfileStore, OAuthCredential } from "./types.js";
-
-const {
-  readQwenCliCredentialsCached,
-  readMiniMaxCliCredentialsCached,
-  readClaudeCliCredentialsCached,
-} = vi.hoisted(() => ({
-  readQwenCliCredentialsCached: vi.fn(),
-  readMiniMaxCliCredentialsCached: vi.fn(),
-  readClaudeCliCredentialsCached: vi.fn(),
-}));
-
-vi.mock("../cli-credentials.js", () => ({
-  readQwenCliCredentialsCached,
-  readMiniMaxCliCredentialsCached,
-  readClaudeCliCredentialsCached,
-}));
-
 import { syncExternalCliCredentials } from "./external-cli-sync.js";
+import type { AuthProfileStore, OAuthCredential } from "./types.js";
 
 function makeStore(profiles: AuthProfileStore["profiles"]): AuthProfileStore {
   return {
@@ -39,6 +22,16 @@ function makeClaudeOAuth(expires: number): OAuthCredential {
 describe("syncExternalCliCredentials (Anthropic)", () => {
   const now = 1_700_000_000_000;
 
+  const readQwenCliCredentialsCached = vi.fn();
+  const readMiniMaxCliCredentialsCached = vi.fn();
+  const readClaudeCliCredentialsCached = vi.fn();
+
+  const deps = {
+    readQwenCliCredentialsCached,
+    readMiniMaxCliCredentialsCached,
+    readClaudeCliCredentialsCached,
+  };
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
@@ -58,7 +51,7 @@ describe("syncExternalCliCredentials (Anthropic)", () => {
     readClaudeCliCredentialsCached.mockReturnValue(makeClaudeOAuth(now + 60_000));
     const store = makeStore({});
 
-    const mutated = syncExternalCliCredentials(store);
+    const mutated = syncExternalCliCredentials(store, deps);
 
     expect(mutated).toBe(false);
     expect(store.profiles["anthropic:claude-cli"]).toBeUndefined();
@@ -75,7 +68,7 @@ describe("syncExternalCliCredentials (Anthropic)", () => {
       },
     });
 
-    const mutated = syncExternalCliCredentials(store);
+    const mutated = syncExternalCliCredentials(store, deps);
 
     expect(mutated).toBe(false);
     expect(store.profiles["anthropic:default"]).toEqual({
@@ -97,7 +90,7 @@ describe("syncExternalCliCredentials (Anthropic)", () => {
       },
     });
 
-    const mutated = syncExternalCliCredentials(store);
+    const mutated = syncExternalCliCredentials(store, deps);
 
     expect(mutated).toBe(false);
     expect(store.profiles["anthropic:default"]).toEqual({
@@ -121,7 +114,7 @@ describe("syncExternalCliCredentials (Anthropic)", () => {
       },
     });
 
-    const mutated = syncExternalCliCredentials(store);
+    const mutated = syncExternalCliCredentials(store, deps);
 
     expect(mutated).toBe(true);
     expect(store.profiles["anthropic:default"]).toMatchObject({
@@ -146,7 +139,7 @@ describe("syncExternalCliCredentials (Anthropic)", () => {
       },
     });
 
-    const mutated = syncExternalCliCredentials(store);
+    const mutated = syncExternalCliCredentials(store, deps);
 
     expect(mutated).toBe(false);
     expect(store.profiles["anthropic:default"]).toMatchObject({

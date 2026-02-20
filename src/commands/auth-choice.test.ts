@@ -4,8 +4,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeEnv } from "../runtime.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
-import type { AuthChoice } from "./onboard-types.js";
 import { applyAuthChoice, resolvePreferredProviderForAuthChoice } from "./auth-choice.js";
+import type { AuthChoice } from "./onboard-types.js";
 
 vi.mock("../providers/github-copilot-auth.js", () => ({
   githubCopilotLoginCommand: vi.fn(async () => {}),
@@ -224,7 +224,9 @@ describe("applyAuthChoice", () => {
 
     const result = await applyAuthChoice({
       authChoice: "xai-api-key",
-      config: { agents: { defaults: { model: { primary: "openai/gpt-4o-mini" } } } },
+      config: {
+        agents: { defaults: { model: { primary: "openai/gpt-4o-mini" } } },
+      },
       prompter,
       runtime,
       setDefaultModel: false,
@@ -565,7 +567,12 @@ describe("applyAuthChoice", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
 
-    const text = vi.fn().mockResolvedValue("code_manual");
+    // In remote mode, onAuth logs the auth URL (containing state=...) then calls prompter.text.
+    // Capture the state from the logged URL so we can return a valid redirect URL.
+    let capturedState = "";
+    const text = vi.fn(async () => {
+      return `http://127.0.0.1:1456/oauth-callback?code=code_manual&state=${capturedState}`;
+    });
     const select: WizardPrompter["select"] = vi.fn(
       async (params) => params.options[0]?.value as never,
     );
@@ -581,7 +588,12 @@ describe("applyAuthChoice", () => {
       progress: vi.fn(() => ({ update: noop, stop: noop })),
     };
     const runtime: RuntimeEnv = {
-      log: vi.fn(),
+      log: vi.fn((msg: unknown) => {
+        const match = String(msg).match(/[?&]state=([^&\s]+)/);
+        if (match) {
+          capturedState = match[1];
+        }
+      }),
       error: vi.fn(),
       exit: vi.fn((code: number) => {
         throw new Error(`exit:${code}`);

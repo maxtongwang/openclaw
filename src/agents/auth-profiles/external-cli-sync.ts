@@ -2,6 +2,9 @@ import {
   readQwenCliCredentialsCached,
   readMiniMaxCliCredentialsCached,
   readClaudeCliCredentialsCached,
+  type QwenCliCredential,
+  type MiniMaxCliCredential,
+  type ClaudeCliCredential,
 } from "../cli-credentials.js";
 import {
   EXTERNAL_CLI_NEAR_EXPIRY_MS,
@@ -11,6 +14,15 @@ import {
   log,
 } from "./constants.js";
 import type { AuthProfileCredential, AuthProfileStore, OAuthCredential } from "./types.js";
+
+type SyncExternalCliDeps = {
+  readQwenCliCredentialsCached?: (opts?: { ttlMs?: number }) => QwenCliCredential | null;
+  readMiniMaxCliCredentialsCached?: (opts?: { ttlMs?: number }) => MiniMaxCliCredential | null;
+  readClaudeCliCredentialsCached?: (opts?: {
+    ttlMs?: number;
+    allowKeychainPrompt?: boolean;
+  }) => ClaudeCliCredential | null;
+};
 
 function shallowEqualOAuthCredentials(a: OAuthCredential | undefined, b: OAuthCredential): boolean {
   if (!a) {
@@ -90,8 +102,17 @@ function syncExternalCliCredentialsForProvider(
  * Sync OAuth credentials from external CLI tools (Qwen Code CLI, MiniMax CLI) into the store.
  *
  * Returns true if any credentials were updated.
+ *
+ * The optional `deps` parameter allows injecting credential readers for testing.
  */
-export function syncExternalCliCredentials(store: AuthProfileStore): boolean {
+export function syncExternalCliCredentials(
+  store: AuthProfileStore,
+  deps?: SyncExternalCliDeps,
+): boolean {
+  const readQwen = deps?.readQwenCliCredentialsCached ?? readQwenCliCredentialsCached;
+  const readMiniMax = deps?.readMiniMaxCliCredentialsCached ?? readMiniMaxCliCredentialsCached;
+  const readClaude = deps?.readClaudeCliCredentialsCached ?? readClaudeCliCredentialsCached;
+
   let mutated = false;
   const now = Date.now();
 
@@ -101,9 +122,7 @@ export function syncExternalCliCredentials(store: AuthProfileStore): boolean {
     !existingQwen ||
     existingQwen.provider !== "qwen-portal" ||
     !isExternalProfileFresh(existingQwen, now);
-  const qwenCreds = shouldSyncQwen
-    ? readQwenCliCredentialsCached({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS })
-    : null;
+  const qwenCreds = shouldSyncQwen ? readQwen({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS }) : null;
   if (qwenCreds) {
     const existing = store.profiles[QWEN_CLI_PROFILE_ID];
     const existingOAuth = existing?.type === "oauth" ? existing : undefined;
@@ -129,7 +148,7 @@ export function syncExternalCliCredentials(store: AuthProfileStore): boolean {
       store,
       MINIMAX_CLI_PROFILE_ID,
       "minimax-portal",
-      () => readMiniMaxCliCredentialsCached({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS }),
+      () => readMiniMax({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS }),
       now,
     )
   ) {
@@ -149,7 +168,7 @@ export function syncExternalCliCredentials(store: AuthProfileStore): boolean {
       anthropicDefaultProfileId,
       "anthropic",
       () => {
-        const cred = readClaudeCliCredentialsCached({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS });
+        const cred = readClaude({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS });
         return cred?.type === "oauth" ? cred : null;
       },
       now,
