@@ -5,7 +5,7 @@ import {
   readNumberParam,
   readReactionParams,
   readStringParam,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/matrix";
 import type { CoreConfig } from "./types.js";
 import {
   deleteMatrixMessage,

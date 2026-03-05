@@ -1,14 +1,20 @@
 /**
  * OpenCode Zen model catalog with dynamic fetching, caching, and static fallback.
  *
- * OpenCode Zen is a $200/month subscription that provides proxy access to multiple
- * AI models (Claude, GPT, Gemini, etc.) through a single API endpoint.
+ * OpenCode Zen is a pay-as-you-go token-based API that provides access to curated
+ * models optimized for coding agents. It uses per-request billing with auto top-up.
+ *
+ * Note: OpenCode Black ($20/$100/$200/month subscriptions) is a separate product
+ * with flat-rate usage tiers. This module handles Zen, not Black.
  *
  * API endpoint: https://opencode.ai/zen/v1
  * Auth URL: https://opencode.ai/auth
  */
 
 import type { ModelApi, ModelDefinitionConfig } from "../config/types.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+
+const log = createSubsystemLogger("opencode-zen-models");
 
 export const OPENCODE_ZEN_API_BASE_URL = "https://opencode.ai/zen/v1";
 export const OPENCODE_ZEN_DEFAULT_MODEL = "claude-opus-4-6";
@@ -299,7 +305,7 @@ export async function fetchOpencodeZenModels(apiKey?: string): Promise<ModelDefi
 
     return models;
   } catch (error) {
-    console.warn(`[opencode-zen] Failed to fetch models, using static fallback: ${String(error)}`);
+    log.warn(`Failed to fetch models, using static fallback: ${String(error)}`);
     return getOpencodeZenStaticFallbackModels();
   }
 }
