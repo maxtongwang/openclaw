@@ -238,7 +238,12 @@ export function resolveDiscordMemberAccessState(params: {
     userTag: params.sender.tag,
     allowNameMatching: params.allowNameMatching,
   });
-  return { channelUsers, channelRoles, hasAccessRestrictions, memberAllowed } as const;
+  return {
+    channelUsers,
+    channelRoles,
+    hasAccessRestrictions,
+    memberAllowed,
+  } as const;
 }
 
 export function resolveDiscordOwnerAllowFrom(params: {
@@ -294,33 +299,6 @@ export function resolveDiscordOwnerAccess(params: {
       )
     : false;
   return { ownerAllowList, ownerAllowed };
-}
-
-export function resolveDiscordOwnerAllowFrom(params: {
-  channelConfig?: DiscordChannelConfigResolved | null;
-  guildInfo?: DiscordGuildEntryResolved | null;
-  sender: { id: string; name?: string; tag?: string };
-}): string[] | undefined {
-  const rawAllowList = params.channelConfig?.users ?? params.guildInfo?.users;
-  if (!Array.isArray(rawAllowList) || rawAllowList.length === 0) {
-    return undefined;
-  }
-  const allowList = normalizeDiscordAllowList(rawAllowList, ["discord:", "user:", "pk:"]);
-  if (!allowList) {
-    return undefined;
-  }
-  const match = resolveDiscordAllowListMatch({
-    allowList,
-    candidate: {
-      id: params.sender.id,
-      name: params.sender.name,
-      tag: params.sender.tag,
-    },
-  });
-  if (!match.allowed || !match.matchKey || match.matchKey === "*") {
-    return undefined;
-  }
-  return [match.matchKey];
 }
 
 export function resolveDiscordCommandAuthorized(params: {
@@ -492,7 +470,11 @@ export function resolveDiscordChannelConfigWithFallback(params: {
         }
       : undefined,
   );
-  return resolveChannelMatchConfig(match, resolveDiscordChannelConfigEntry) ?? { allowed: false };
+  return (
+    resolveChannelMatchConfig(match, resolveDiscordChannelConfigEntry) ?? {
+      allowed: false,
+    }
+  );
 }
 
 export function resolveDiscordShouldRequireMention(params: {

@@ -7,8 +7,6 @@
     "openclaw": "workspace:*"
   },
   "openclaw": {
-    "extensions": [
-      "./index.ts"
-    ]
+    "extensions": []
   }
 }
