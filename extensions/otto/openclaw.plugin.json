@@ -1,0 +1,24 @@
+{
+  "id": "otto",
+  "name": "Otto CRM",
+  "description": "Bridges Otto CRM MCP tools as native OpenClaw pi-tools",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "Otto API base URL (e.g. http://localhost:3456)"
+      },
+      "token": {
+        "type": "string",
+        "description": "Bearer token for Otto MCP endpoint (leave empty for dev mode)"
+      },
+      "ownerOnlyTools": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Tool names restricted to owner senders (defaults to crm_create_entity, crm_create_note)"
+      }
+    }
+  }
+}
