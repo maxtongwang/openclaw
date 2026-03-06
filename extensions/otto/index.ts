@@ -42,84 +42,89 @@ const plugin: OpenClawPluginDefinition = {
   name: "Otto CRM",
   description: "Loads Otto MCP tools as native OpenClaw pi-tools at startup",
 
-  async register(api) {
+  register(api) {
     const cfg = (api.pluginConfig ?? {}) as {
       url?: string;
       token?: string;
       ownerOnlyTools?: string[];
     };
 
-    const baseUrl = cfg.url?.trim();
-    if (!baseUrl) {
-      api.logger.warn("otto: plugin disabled — set plugins.otto.config.url in openclaw.json");
-      return;
-    }
-
-    const token = cfg.token?.trim() ?? "";
-    const mcpUrl = `${baseUrl.replace(/\/$/, "")}/mcp`;
-
-    // All tools open by default — override with ownerOnlyTools in config if needed
-    const ownerOnlyTools = new Set(cfg.ownerOnlyTools ?? []);
-
-    // Fetch Otto's live tool list — fail gracefully so Otto downtime doesn't break startup
-    let tools: McpTool[];
-    try {
-      const resp = await mcpPost<{ tools: McpTool[] }>(mcpUrl, token, "tools/list");
-      if (resp.error) {
-        api.logger.error(
-          `otto: tools/list failed: ${resp.error.message ?? `code ${resp.error.code}`}`,
-        );
+    // OpenClaw plugin SDK doesn't await async register(); wrap async work in a
+    // fire-and-forget IIFE so register() returns synchronously while tools are
+    // fetched and registered in the background before any agent call arrives.
+    (async () => {
+      const baseUrl = cfg.url?.trim();
+      if (!baseUrl) {
+        api.logger.warn("otto: plugin disabled — set plugins.otto.config.url in openclaw.json");
         return;
       }
-      tools = resp.result?.tools ?? [];
-    } catch (err) {
-      api.logger.warn(`otto: could not reach ${mcpUrl} — CRM tools unavailable: ${String(err)}`);
-      return;
-    }
 
-    if (tools.length === 0) {
-      api.logger.warn("otto: no tools returned from MCP server");
-      return;
-    }
+      const token = cfg.token?.trim() ?? "";
+      const mcpUrl = `${baseUrl.replace(/\/$/, "")}/mcp`;
 
-    api.logger.info(`otto: registering ${tools.length} CRM tools from ${mcpUrl}`);
+      // All tools open by default — override with ownerOnlyTools in config if needed
+      const ownerOnlyTools = new Set(cfg.ownerOnlyTools ?? []);
 
-    for (const tool of tools) {
-      const isOwnerOnly = ownerOnlyTools.has(tool.name);
+      // Fetch Otto's live tool list — fail gracefully so Otto downtime doesn't break startup
+      let tools: McpTool[];
+      try {
+        const resp = await mcpPost<{ tools: McpTool[] }>(mcpUrl, token, "tools/list");
+        if (resp.error) {
+          api.logger.error(
+            `otto: tools/list failed: ${resp.error.message ?? `code ${resp.error.code}`}`,
+          );
+          return;
+        }
+        tools = resp.result?.tools ?? [];
+      } catch (err) {
+        api.logger.warn(`otto: could not reach ${mcpUrl} — CRM tools unavailable: ${String(err)}`);
+        return;
+      }
 
-      // Forward Otto's raw JSON Schema directly — no conversion needed
-      const parameters = Type.Unsafe<Record<string, unknown>>(
-        tool.inputSchema ?? { type: "object", properties: {} },
-      );
+      if (tools.length === 0) {
+        api.logger.warn("otto: no tools returned from MCP server");
+        return;
+      }
 
-      api.registerTool(
-        {
-          name: tool.name,
-          label: tool.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-          description: tool.description,
-          parameters,
-          ownerOnly: isOwnerOnly || undefined,
-          async execute(_toolCallId, args) {
-            const resp = await mcpPost<{
-              content: Array<{ type: string; text: string }>;
-            }>(mcpUrl, token, "tools/call", {
-              name: tool.name,
-              arguments: args as Record<string, unknown>,
-            });
-            if (resp.error) {
-              throw new Error(
-                `otto ${tool.name}: ${resp.error.message ?? `code ${resp.error.code}`}`,
-              );
-            }
-            return {
-              content: resp.result?.content ?? [{ type: "text", text: "(no result)" }],
-              details: { tool: tool.name },
-            };
+      api.logger.info(`otto: registering ${tools.length} CRM tools from ${mcpUrl}`);
+
+      for (const tool of tools) {
+        const isOwnerOnly = ownerOnlyTools.has(tool.name);
+
+        // Forward Otto's raw JSON Schema directly — no conversion needed
+        const parameters = Type.Unsafe<Record<string, unknown>>(
+          tool.inputSchema ?? { type: "object", properties: {} },
+        );
+
+        api.registerTool(
+          {
+            name: tool.name,
+            label: tool.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+            description: tool.description,
+            parameters,
+            ownerOnly: isOwnerOnly || undefined,
+            async execute(_toolCallId, args) {
+              const resp = await mcpPost<{
+                content: Array<{ type: string; text: string }>;
+              }>(mcpUrl, token, "tools/call", {
+                name: tool.name,
+                arguments: args as Record<string, unknown>,
+              });
+              if (resp.error) {
+                throw new Error(
+                  `otto ${tool.name}: ${resp.error.message ?? `code ${resp.error.code}`}`,
+                );
+              }
+              return {
+                content: resp.result?.content ?? [{ type: "text", text: "(no result)" }],
+                details: { tool: tool.name },
+              };
+            },
           },
-        },
-        { name: tool.name },
-      );
-    }
+          { name: tool.name },
+        );
+      }
+    })().catch((err) => api.logger.warn(`otto: registration error: ${String(err)}`));
   },
 };
 
