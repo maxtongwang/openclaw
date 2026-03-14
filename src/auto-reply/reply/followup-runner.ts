@@ -7,7 +7,7 @@ import { runWithModelFallback } from "../../agents/model-fallback.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import type { TypingMode } from "../../config/types.js";
-import { logVerbose } from "../../globals.js";
+import { logVerbose, logWarn } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
 import { defaultRuntime } from "../../runtime.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
@@ -76,7 +76,11 @@ export function createFollowupRunner(params: {
     const shouldRouteToOriginating = isRoutableChannel(originatingChannel) && originatingTo;
 
     if (!shouldRouteToOriginating && !opts?.onBlockReply) {
-      logVerbose("followup queue: no onBlockReply handler; dropping payloads");
+      // AIDEV-NOTE: Silent delivery failure — agent produced output with no handler
+      // or originating channel. Warn so it always surfaces in gateway.err.log.
+      logWarn(
+        `followup queue: no onBlockReply handler and no originating channel; dropping ${payloads.length} payload(s)`,
+      );
       return;
     }
 

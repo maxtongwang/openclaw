@@ -17,19 +17,12 @@ const SUBAGENT_FOLLOWUP_HINTS = [
   "wait for them to report back",
 ] as const;
 
+// AIDEV-NOTE: Keep this list narrow — overly broad phrases (e.g. "on it",
+// "working on it") cause false-positive suppression when the cron agent
+// handles a task directly without spawning subagents, resulting in silent
+// delivery failures. Only include explicit subagent-announcement language
+// that an agent would write when intentionally handing off to a subagent.
 const INTERIM_CRON_HINTS = [
-  "on it",
-  "pulling everything together",
-  "give me a few",
-  "give me a few min",
-  "few minutes",
-  "let me compile",
-  "i'll gather",
-  "i will gather",
-  "working on it",
-  "retrying now",
-  "should be about",
-  "should have your summary",
   "it'll auto-announce when done",
   "it will auto-announce when done",
   ...SUBAGENT_FOLLOWUP_HINTS,
