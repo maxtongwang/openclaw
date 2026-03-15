@@ -103,7 +103,9 @@ function resolvePrivateApiDecision(params: {
   const throwEffectDisabledError =
     !throwForcePrivateApiError && wantsEffect && privateApiStatus === false;
 
-  if (!needsPrivateApi || privateApiStatus !== null) {
+  // Short-circuit when no warning is possible: status is known, no optional features
+  // requested, or forcePrivateApi already set a hard error (warning would be dead code).
+  if (!needsPrivateApi || privateApiStatus !== null || throwForcePrivateApiError) {
     return {
       canUsePrivateApi,
       throwEffectDisabledError,
@@ -111,8 +113,8 @@ function resolvePrivateApiDecision(params: {
     };
   }
 
-  // Private API status is unknown. If forcePrivateApi is true this is already
-  // a hard error (throwForcePrivateApiError). Otherwise warn for optional features.
+  // Private API status is unknown and optional features (reply/effect) were requested.
+  // Build a warning so the caller can surface it via warnBlueBubbles.
   const requested = [
     wantsReplyThread ? "reply threading" : null,
     wantsEffect ? "message effects" : null,
@@ -412,6 +414,18 @@ export async function sendMessageBlueBubbles(
     throw new Error("BlueBubbles password is required");
   }
   const privateApiStatus = getCachedBlueBubblesPrivateApiStatus(account.accountId);
+  // forcePrivateApi: read from account config. When true, always use Private API
+  // for every send (not just replies/effects). Required for headless macOS setups.
+  // Pre-flight check runs before chat resolution so headless users get a clear error
+  // on ALL send paths (including new-chat creates), not just existing-chat sends.
+  const forcePrivateApi = Boolean(account.config.forcePrivateApi);
+  if (forcePrivateApi && !isBlueBubblesPrivateApiStatusEnabled(privateApiStatus)) {
+    const statusLabel = privateApiStatus === false ? "disabled" : "unknown";
+    throw new Error(
+      `BlueBubbles send failed: forcePrivateApi is enabled but Private API is ${statusLabel} on the BlueBubbles server. ` +
+        "Enable Private API in BlueBubbles settings or run a status probe to check connectivity.",
+    );
+  }
 
   const target = resolveBlueBubblesSendTarget(to);
   const chatGuid = await resolveChatGuidForTarget({
@@ -439,9 +453,6 @@ export async function sendMessageBlueBubbles(
   const effectId = resolveEffectId(opts.effectId);
   const wantsReplyThread = Boolean(opts.replyToMessageGuid?.trim());
   const wantsEffect = Boolean(effectId);
-  // forcePrivateApi: read from account config. When true, always use Private API
-  // for every send (not just replies/effects). Required for headless macOS setups.
-  const forcePrivateApi = Boolean(account.config.forcePrivateApi);
   const privateApiDecision = resolvePrivateApiDecision({
     privateApiStatus,
     wantsReplyThread,
@@ -449,6 +460,8 @@ export async function sendMessageBlueBubbles(
     forcePrivateApi,
   });
   if (privateApiDecision.throwForcePrivateApiError) {
+    // This path is only reached if privateApiStatus changed between the pre-flight
+    // check above and resolvePrivateApiDecision (race condition; extremely unlikely).
     const statusLabel = privateApiStatus === false ? "disabled" : "unknown";
     throw new Error(
       `BlueBubbles send failed: forcePrivateApi is enabled but Private API is ${statusLabel} on the BlueBubbles server. ` +

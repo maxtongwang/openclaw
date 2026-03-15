@@ -813,11 +813,11 @@ describe("send", () => {
       });
 
       it("throws clear error when forcePrivateApi is enabled but Private API is disabled", async () => {
+        // Pre-flight check fires before chat resolution — no handle mock needed
         mockBlueBubblesPrivateApiStatusOnce(
           privateApiStatusMock,
           BLUE_BUBBLES_PRIVATE_API_STATUS.disabled,
         );
-        mockResolvedHandleTarget();
 
         await expect(
           sendMessageBlueBubbles("+15551234567", "Hello", {
@@ -837,8 +837,8 @@ describe("send", () => {
       });
 
       it("throws clear error when forcePrivateApi is enabled and Private API status is unknown", async () => {
-        // No mock → status remains null (unknown)
-        mockResolvedHandleTarget();
+        // Pre-flight check fires before chat resolution — no handle mock needed.
+        // No status mock → status remains null (unknown).
 
         await expect(
           sendMessageBlueBubbles("+15551234567", "Hello", {
