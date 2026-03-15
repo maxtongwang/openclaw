@@ -780,5 +780,102 @@ describe("send", () => {
       expect(typeof body.tempGuid).toBe("string");
       expect(body.tempGuid.length).toBeGreaterThan(0);
     });
+
+    // forcePrivateApi tests: headless macOS users set this to avoid AppleScript fallback.
+    describe("forcePrivateApi", () => {
+      it("uses private-api method for plain sends when forcePrivateApi is enabled and Private API is active", async () => {
+        mockBlueBubblesPrivateApiStatusOnce(
+          privateApiStatusMock,
+          BLUE_BUBBLES_PRIVATE_API_STATUS.enabled,
+        );
+        mockResolvedHandleTarget();
+        mockSendResponse({ data: { guid: "msg-force-private" } });
+
+        const result = await sendMessageBlueBubbles("+15551234567", "Hello", {
+          serverUrl: "http://localhost:1234",
+          password: "test",
+          cfg: {
+            channels: {
+              bluebubbles: {
+                serverUrl: "http://localhost:1234",
+                password: "test",
+                forcePrivateApi: true,
+              },
+            },
+          },
+        });
+
+        expect(result.messageId).toBe("msg-force-private");
+        const sendCall = mockFetch.mock.calls[1];
+        const body = JSON.parse(sendCall[1].body);
+        // Plain send should now use private-api method
+        expect(body.method).toBe("private-api");
+      });
+
+      it("throws clear error when forcePrivateApi is enabled but Private API is disabled", async () => {
+        mockBlueBubblesPrivateApiStatusOnce(
+          privateApiStatusMock,
+          BLUE_BUBBLES_PRIVATE_API_STATUS.disabled,
+        );
+        mockResolvedHandleTarget();
+
+        await expect(
+          sendMessageBlueBubbles("+15551234567", "Hello", {
+            serverUrl: "http://localhost:1234",
+            password: "test",
+            cfg: {
+              channels: {
+                bluebubbles: {
+                  serverUrl: "http://localhost:1234",
+                  password: "test",
+                  forcePrivateApi: true,
+                },
+              },
+            },
+          }),
+        ).rejects.toThrow(/forcePrivateApi is enabled but Private API is disabled/);
+      });
+
+      it("throws clear error when forcePrivateApi is enabled and Private API status is unknown", async () => {
+        // No mock → status remains null (unknown)
+        mockResolvedHandleTarget();
+
+        await expect(
+          sendMessageBlueBubbles("+15551234567", "Hello", {
+            serverUrl: "http://localhost:1234",
+            password: "test",
+            cfg: {
+              channels: {
+                bluebubbles: {
+                  serverUrl: "http://localhost:1234",
+                  password: "test",
+                  forcePrivateApi: true,
+                },
+              },
+            },
+          }),
+        ).rejects.toThrow(/forcePrivateApi is enabled but Private API is unknown/);
+      });
+
+      it("does not affect plain sends when forcePrivateApi is false (default)", async () => {
+        mockBlueBubblesPrivateApiStatusOnce(
+          privateApiStatusMock,
+          BLUE_BUBBLES_PRIVATE_API_STATUS.enabled,
+        );
+        mockResolvedHandleTarget();
+        mockSendResponse({ data: { guid: "msg-no-force" } });
+
+        const result = await sendMessageBlueBubbles("+15551234567", "Hello", {
+          serverUrl: "http://localhost:1234",
+          password: "test",
+        });
+
+        expect(result.messageId).toBe("msg-no-force");
+        const sendCall = mockFetch.mock.calls[1];
+        const body = JSON.parse(sendCall[1].body);
+        // Plain send without forcePrivateApi should NOT add private-api method
+        expect(body.method).toBeUndefined();
+      });
+    });
   });
 });

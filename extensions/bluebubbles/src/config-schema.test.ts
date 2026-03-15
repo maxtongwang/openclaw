@@ -64,4 +64,27 @@ describe("BlueBubblesConfigSchema", () => {
     });
     expect(parsed.success).toBe(true);
   });
+
+  // forcePrivateApi: headless macOS users enable this to avoid AppleScript fallback.
+  it("accepts forcePrivateApi: true at top-level account", () => {
+    const parsed = BlueBubblesConfigSchema.safeParse({
+      serverUrl: "http://localhost:1234",
+      password: "secret", // pragma: allowlist secret
+      forcePrivateApi: true,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts forcePrivateApi: true in named account", () => {
+    const parsed = BlueBubblesConfigSchema.safeParse({
+      accounts: {
+        headless: {
+          serverUrl: "http://localhost:1234",
+          password: "secret", // pragma: allowlist secret
+          forcePrivateApi: true,
+        },
+      },
+    });
+    expect(parsed.success).toBe(true);
+  });
 });

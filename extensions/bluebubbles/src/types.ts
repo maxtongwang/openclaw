@@ -55,6 +55,14 @@ export type BlueBubblesAccountConfig = {
   sendReadReceipts?: boolean;
   /** Allow fetching from private/internal IP addresses (e.g. localhost). Required for same-host BlueBubbles setups. */
   allowPrivateNetwork?: boolean;
+  /**
+   * Always use Private API for all outbound sends when enabled.
+   * Headless macOS users (no GUI Automation grants) should enable this to
+   * avoid AppleScript hangs. If Private API is unavailable and this is true,
+   * the send will throw a clear error instead of silently falling back to
+   * AppleScript.
+   */
+  forcePrivateApi?: boolean;
   /** Per-group configuration keyed by chat GUID or identifier. */
   groups?: Record<string, BlueBubblesGroupConfig>;
 };

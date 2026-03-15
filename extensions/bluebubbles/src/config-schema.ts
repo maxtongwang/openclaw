@@ -50,6 +50,10 @@ const bluebubblesAccountSchema = z
     sendReadReceipts: z.boolean().optional(),
     allowPrivateNetwork: z.boolean().optional(),
     blockStreaming: z.boolean().optional(),
+    // Always force Private API for all sends. Headless macOS users (no GUI Automation
+    // grants) should enable this to avoid AppleScript hangs. Fails with a clear error
+    // if Private API is unavailable instead of silently falling back to AppleScript.
+    forcePrivateApi: z.boolean().optional(),
     groups: z.object({}).catchall(bluebubblesGroupConfigSchema).optional(),
   })
   .superRefine((value, ctx) => {

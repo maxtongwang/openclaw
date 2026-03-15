@@ -79,6 +79,8 @@ function resolveEffectId(raw?: string): string | undefined {
 type PrivateApiDecision = {
   canUsePrivateApi: boolean;
   throwEffectDisabledError: boolean;
+  // Set when forcePrivateApi is true but Private API is unavailable (disabled or unknown).
+  throwForcePrivateApiError: boolean;
   warningMessage?: string;
 };
 
@@ -86,15 +88,31 @@ function resolvePrivateApiDecision(params: {
   privateApiStatus: boolean | null;
   wantsReplyThread: boolean;
   wantsEffect: boolean;
+  // When true, always use Private API for all sends (including plain messages).
+  // If Private API is unavailable, throws a clear error instead of falling back
+  // to AppleScript. Intended for headless macOS users without GUI Automation grants.
+  forcePrivateApi: boolean;
 }): PrivateApiDecision {
-  const { privateApiStatus, wantsReplyThread, wantsEffect } = params;
-  const needsPrivateApi = wantsReplyThread || wantsEffect;
-  const canUsePrivateApi =
-    needsPrivateApi && isBlueBubblesPrivateApiStatusEnabled(privateApiStatus);
-  const throwEffectDisabledError = wantsEffect && privateApiStatus === false;
+  const { privateApiStatus, wantsReplyThread, wantsEffect, forcePrivateApi } = params;
+  const needsPrivateApi = forcePrivateApi || wantsReplyThread || wantsEffect;
+  const privateApiEnabled = isBlueBubblesPrivateApiStatusEnabled(privateApiStatus);
+  const canUsePrivateApi = needsPrivateApi && privateApiEnabled;
+
+  // forcePrivateApi with unavailable Private API → hard error (no AppleScript fallback)
+  const throwForcePrivateApiError = forcePrivateApi && !privateApiEnabled;
+  const throwEffectDisabledError =
+    !throwForcePrivateApiError && wantsEffect && privateApiStatus === false;
+
   if (!needsPrivateApi || privateApiStatus !== null) {
-    return { canUsePrivateApi, throwEffectDisabledError };
+    return {
+      canUsePrivateApi,
+      throwEffectDisabledError,
+      throwForcePrivateApiError,
+    };
   }
+
+  // Private API status is unknown. If forcePrivateApi is true this is already
+  // a hard error (throwForcePrivateApiError). Otherwise warn for optional features.
   const requested = [
     wantsReplyThread ? "reply threading" : null,
     wantsEffect ? "message effects" : null,
@@ -104,7 +122,11 @@ function resolvePrivateApiDecision(params: {
   return {
     canUsePrivateApi,
     throwEffectDisabledError,
-    warningMessage: `Private API status unknown; sending without ${requested}. Run a status probe to restore private-api features.`,
+    throwForcePrivateApiError,
+    warningMessage:
+      requested.length > 0
+        ? `Private API status unknown; sending without ${requested}. Run a status probe to restore private-api features.`
+        : undefined,
   };
 }
 
@@ -417,11 +439,22 @@ export async function sendMessageBlueBubbles(
   const effectId = resolveEffectId(opts.effectId);
   const wantsReplyThread = Boolean(opts.replyToMessageGuid?.trim());
   const wantsEffect = Boolean(effectId);
+  // forcePrivateApi: read from account config. When true, always use Private API
+  // for every send (not just replies/effects). Required for headless macOS setups.
+  const forcePrivateApi = Boolean(account.config.forcePrivateApi);
   const privateApiDecision = resolvePrivateApiDecision({
     privateApiStatus,
     wantsReplyThread,
     wantsEffect,
+    forcePrivateApi,
   });
+  if (privateApiDecision.throwForcePrivateApiError) {
+    const statusLabel = privateApiStatus === false ? "disabled" : "unknown";
+    throw new Error(
+      `BlueBubbles send failed: forcePrivateApi is enabled but Private API is ${statusLabel} on the BlueBubbles server. ` +
+        "Enable Private API in BlueBubbles settings or run a status probe to check connectivity.",
+    );
+  }
   if (privateApiDecision.throwEffectDisabledError) {
     throw new Error(
       "BlueBubbles send failed: reply/effect requires Private API, but it is disabled on the BlueBubbles server.",
